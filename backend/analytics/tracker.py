@@ -70,13 +70,36 @@ class AnalyticsTracker:
         try:
             # Calculate improvement metrics
             if iterations and len(iterations) > 0:
-                # Get scores from first iteration
+                # Get scores from first iteration (most accurate)
                 first_iter = iterations[0]
-                yantra_score = first_iter.get("yantra_score") or first_iter.get("score", final_score)
-                agni_score = first_iter.get("agni_score") or first_iter.get("score", final_score)
+                yantra_score = first_iter.get("yantra_score")
+                agni_score = first_iter.get("agni_score")
                 
-                # Use final score if agni_score not available
-                if not agni_score or agni_score == yantra_score:
+                # Fallback: if scores not in first iteration, try to get from any iteration
+                if yantra_score is None:
+                    # Look for yantra_score in any iteration
+                    for iter_data in iterations:
+                        if "yantra_score" in iter_data:
+                            yantra_score = iter_data["yantra_score"]
+                            break
+                    # Last resort: use first iteration's score (might be Agni's, but better than nothing)
+                    if yantra_score is None:
+                        yantra_score = first_iter.get("score", final_score)
+                
+                if agni_score is None:
+                    # Look for agni_score in any iteration
+                    for iter_data in iterations:
+                        if "agni_score" in iter_data:
+                            agni_score = iter_data["agni_score"]
+                            break
+                    # Last resort: use final_score
+                    if agni_score is None:
+                        agni_score = final_score
+                
+                # Ensure we have valid scores
+                if yantra_score is None:
+                    yantra_score = final_score
+                if agni_score is None:
                     agni_score = final_score
                 
                 improvement = agni_score - yantra_score

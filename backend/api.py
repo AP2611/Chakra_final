@@ -204,6 +204,17 @@ async def generate_process_events(request: TaskRequest) -> AsyncGenerator[str, N
             iteration_data["yantra_output"] = yantra_output.strip()
             current_solution = yantra_output.strip()
             
+            # Evaluate Yantra's initial output for accurate analytics
+            yantra_score_result = orchestrator.evaluator.evaluate(
+                solution=current_solution,
+                task=request.task,
+                is_code=request.is_code,
+                rag_chunks=rag_chunks
+            )
+            yantra_score = yantra_score_result["total"]
+            iteration_data["yantra_score"] = yantra_score
+            iteration_data["yantra_score_details"] = yantra_score_result
+            
             yield f"data: {json.dumps({'type': 'first_response_complete', 'iteration': iteration + 1})}\n\n"
             
             # Step 2: Sutra critiques (optimized with token limits)
@@ -290,24 +301,29 @@ async def generate_process_events(request: TaskRequest) -> AsyncGenerator[str, N
                 error_msg = str(e)
                 print(f"Error sending improved events: {error_msg}")
             
-            # Step 4: Evaluate
-            score_result = orchestrator.evaluator.evaluate(
+            # Step 4: Evaluate Agni's improved output
+            agni_score_result = orchestrator.evaluator.evaluate(
                 solution=current_solution,
                 task=request.task,
                 is_code=request.is_code,
                 rag_chunks=rag_chunks
             )
-            score = score_result["total"]
-            iteration_data["score"] = score
-            iteration_data["score_details"] = score_result
+            agni_score = agni_score_result["total"]
+            iteration_data["agni_score"] = agni_score
+            iteration_data["score"] = agni_score  # Keep for backward compatibility
+            iteration_data["score_details"] = agni_score_result
             
-            # Calculate improvement
+            # Calculate improvement (Agni vs Yantra for this iteration)
+            improvement = agni_score - yantra_score
+            iteration_data["improvement"] = improvement
+            
+            # Also calculate improvement from previous iteration's Agni score
             if iteration > 0:
-                prev_score = iterations[-1]["score"]
-                improvement = score - prev_score
-                iteration_data["improvement"] = improvement
+                prev_agni_score = iterations[-1].get("agni_score", iterations[-1].get("score", 0.0))
+                iteration_improvement = agni_score - prev_agni_score
+                iteration_data["iteration_improvement"] = iteration_improvement
             else:
-                iteration_data["improvement"] = 0.0
+                iteration_data["iteration_improvement"] = improvement
             
             iterations.append(iteration_data)
             
