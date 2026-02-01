@@ -144,12 +144,20 @@ export default function CodeAssistant() {
             case 'improved':
               // Final improved output (in case we missed any tokens)
               // Handle both improved_output and solution fields for compatibility
+              // CRITICAL FIX: Only update if refinedCode is empty to prevent overwriting
               const finalOutput = data.improved_output || data.solution
               
               if (finalOutput) {
-                setRefinedCode(finalOutput)
-                currentRefinedCode = finalOutput
-                isInImprovementPhase = false // Mark improvement as complete
+                setRefinedCode(prev => {
+                  // If refinedCode is already set, keep it (it was set by improved_token)
+                  if (prev && prev.trim()) {
+                    return prev
+                  }
+                  // Only set if empty
+                  currentRefinedCode = finalOutput
+                  isInImprovementPhase = false // Mark improvement as complete
+                  return finalOutput
+                })
               }
               setProgress(stepProgress + 60)
               break

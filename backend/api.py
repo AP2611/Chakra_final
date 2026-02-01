@@ -335,13 +335,14 @@ async def generate_process_events(request: TaskRequest) -> AsyncGenerator[str, N
             })}\n\n"
             
             # Update best solution
-            if score > best_score:
-                best_score = score
+            if agni_score > best_score:
+                best_score = agni_score
                 best_solution = current_solution
             
             # Check if we should continue
             if iteration > 0:
-                improvement = score - iterations[-2]["score"]
+                prev_agni_score = iterations[-1].get("agni_score", iterations[-1].get("score", 0.0))
+                improvement = agni_score - prev_agni_score
                 if improvement < orchestrator.min_improvement:
                     # Score plateaued, stop
                     yield f"data: {json.dumps({
