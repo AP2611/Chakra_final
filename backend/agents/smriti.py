@@ -10,7 +10,16 @@ import hashlib
 class Smriti:
     """Memory agent for persistent learning."""
     
-    def __init__(self, db_path: str = "backend/data/memory.db"):
+    def __init__(self, db_path: str = None):
+        # Use path relative to this file's location for portability
+        if db_path is None:
+            # Get the backend directory (parent of agents/)
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # Get the project root (parent of backend/)
+            project_root = os.path.dirname(backend_dir)
+            # Use data directory in project root
+            data_dir = os.path.join(project_root, "backend", "data")
+            db_path = os.path.join(data_dir, "memory.db")
         self.db_path = db_path
         self._init_db()
     

@@ -8,7 +8,15 @@ import json
 class SimpleRAGRetriever:
     """Simple RAG retriever for document chunks."""
     
-    def __init__(self, documents_dir: str = "backend/data/documents"):
+    def __init__(self, documents_dir: str = None):
+        # Use path relative to this file's location for portability
+        if documents_dir is None:
+            # Get the backend directory (parent of rag/)
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # Get the project root (parent of backend/)
+            project_root = os.path.dirname(backend_dir)
+            # Use data/documents directory in project root
+            documents_dir = os.path.join(project_root, "backend", "data", "documents")
         self.documents_dir = documents_dir
         self.chunks: List[Dict[str, str]] = []
         self._load_documents()

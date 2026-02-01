@@ -1,7 +1,13 @@
 """Temporary test to verify Agni streaming works in isolation."""
 import asyncio
 import sys
-sys.path.insert(0, 'Chakra/backend')
+import os
+
+# Add parent directory to path to allow imports when running from backend/
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(backend_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 from orchestrator import Orchestrator
 
