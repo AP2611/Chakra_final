@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   FileText, Upload, Sparkles, CheckCircle, 
   FileCode, FileImage, File, X, ChevronRight,
   Search, Download, Eye, Brain, BookOpen, Clock, ChevronDown
 } from 'lucide-react'
-import { streamSSE } from '@/utils/api'
+import { streamSSE, uploadDocument, listDocuments, deleteDocument } from '@/utils/api'
 
 interface Document {
   id: number
@@ -23,6 +23,7 @@ interface Answer {
   answer: string
   sources: string[]
   originalOutputs?: OriginalOutput[]
+  timestamp?: string // Optional timestamp for display
 }
 
 interface OriginalOutput {
@@ -34,26 +35,7 @@ interface OriginalOutput {
   score: number
 }
 
-const sampleDocuments: Document[] = [
-  { id: 1, name: 'API Documentation.pdf', type: 'pdf', size: '2.4 MB', pages: 24 },
-  { id: 2, name: 'Technical Specification.docx', type: 'docx', size: '1.1 MB', pages: 18 },
-  { id: 3, name: 'Architecture Diagram.png', type: 'image', size: '856 KB', pages: 1 },
-]
-
-const sampleAnswers: Answer[] = [
-  {
-    id: 1,
-    question: "What are the main API endpoints?",
-    answer: "The API provides three primary endpoints: /api/v1/users for user management, /api/v1/data for data operations, and /api/v1/auth for authentication. Each endpoint supports CRUD operations with rate limiting of 100 requests per minute.",
-    sources: ["API Documentation.pdf", "Technical Specification.docx"],
-  },
-  {
-    id: 2,
-    question: "How does the authentication system work?",
-    answer: "The authentication system uses JWT tokens with RSA-256 encryption. Tokens expire after 24 hours and can be refreshed using the refresh endpoint. All endpoints require Bearer token authentication in the Authorization header.",
-    sources: ["API Documentation.pdf"],
-  },
-]
+// Removed sampleDocuments and sampleAnswers - using real data from API
 
 const fileTypeIcons: Record<string, React.ElementType> = {
   pdf: FileText,
@@ -64,10 +46,11 @@ const fileTypeIcons: Record<string, React.ElementType> = {
 
 export default function DocumentAssistant() {
   const [isDragging, setIsDragging] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<Document[]>(sampleDocuments)
+  const [uploadedFiles, setUploadedFiles] = useState<Document[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
-  const [answers, setAnswers] = useState<Answer[]>(sampleAnswers)
+  const [answers, setAnswers] = useState<Answer[]>([])
   const [question, setQuestion] = useState('')
   const [isAsking, setIsAsking] = useState(false)
   const [currentStep, setCurrentStep] = useState<string>('')
@@ -76,6 +59,7 @@ export default function DocumentAssistant() {
   const [currentOriginalOutputs, setCurrentOriginalOutputs] = useState<OriginalOutput[]>([])
   
   const abortControllerRef = useRef<AbortController | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -87,16 +71,94 @@ export default function DocumentAssistant() {
     setIsDragging(false)
   }, [])
 
+  // Load documents from API
+  const loadDocuments = useCallback(async () => {
+    try {
+      const response = await listDocuments()
+      const documents: Document[] = (response.documents || []).map((source: string, index: number) => {
+        const extension = source.split('.').pop()?.toLowerCase() || 'default'
+        return {
+          id: index + 1,
+          name: source,
+          type: extension,
+          size: 'Unknown', // Backend doesn't store size
+          pages: 1 // Backend doesn't store pages
+        }
+      })
+      setUploadedFiles(documents)
+      setUploadError(null)
+    } catch (error: any) {
+      console.error('Error loading documents:', error)
+      setUploadError(`Failed to load documents: ${error.message}`)
+    }
+  }, [])
+
+  // Process files (upload to backend)
+  const processFiles = useCallback(async (files: FileList) => {
+    setIsProcessing(true)
+    setUploadError(null)
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      
+      // Validate file type
+      const extension = file.name.split('.').pop()?.toLowerCase()
+      if (extension !== 'txt' && extension !== 'pdf') {
+        setUploadError(`File ${file.name} is not supported. Please upload .txt or .pdf files only.`)
+        setIsProcessing(false)
+        return
+      }
+      
+      try {
+        setCurrentStep(`Uploading ${file.name}...`)
+        await uploadDocument(file)
+        setCurrentStep(`Processed ${file.name}`)
+      } catch (error: any) {
+        console.error(`Error uploading ${file.name}:`, error)
+        setUploadError(`Failed to upload ${file.name}: ${error.message}`)
+        setIsProcessing(false)
+        return
+      }
+    }
+    
+    // Refresh document list after all uploads
+    await loadDocuments()
+    setIsProcessing(false)
+    setCurrentStep('')
+  }, [loadDocuments])
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    // Handle file drop
-    setIsProcessing(true)
-    setTimeout(() => setIsProcessing(false), 2000)
-  }, [])
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files)
+    }
+  }, [processFiles])
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files)
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }, [processFiles])
+
+  // Load documents on mount
+  useEffect(() => {
+    loadDocuments()
+  }, [loadDocuments])
 
   const handleAskQuestion = useCallback(async () => {
     if (!question.trim() || isAsking) return
+    
+    // Check if documents are uploaded
+    if (uploadedFiles.length === 0) {
+      setUploadError('Please upload at least one document before asking questions.')
+      return
+    }
     
     setIsAsking(true)
     setCurrentStep('Analyzing question...')
@@ -339,12 +401,23 @@ export default function DocumentAssistant() {
                 {isDragging ? 'Drop files here' : 'Upload Documents'}
               </h3>
               <p className="text-ivory-400 text-sm mb-4">
-                Drag & drop PDF, DOCX, or images
+                Drag & drop .txt or .pdf files
               </p>
               
-              <button className="px-4 py-2 rounded-lg bg-gold-500/10 text-gold-glow hover:bg-gold-500/20 transition-colors text-sm">
-                Browse Files
-              </button>
+              <label className="inline-block">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.pdf"
+                  multiple
+                  onChange={handleFileInput}
+                  className="hidden"
+                  disabled={isProcessing}
+                />
+                <span className="px-4 py-2 rounded-lg bg-gold-500/10 text-gold-glow hover:bg-gold-500/20 transition-colors text-sm cursor-pointer inline-block">
+                  Browse Files
+                </span>
+              </label>
             </div>
 
             {/* Processing animation */}
@@ -360,9 +433,25 @@ export default function DocumentAssistant() {
                     <div className="w-8 h-8 rounded-full border-2 border-gold-500/30 border-t-gold-glow animate-spin" />
                     <div>
                       <p className="text-sm text-gold-glow">Processing document...</p>
-                      <p className="text-xs text-ivory-400">Extracting text and context</p>
+                      <p className="text-xs text-ivory-400">Extracting text and adding to vector database</p>
                     </div>
                   </div>
+                </motion.div>
+              )}
+              {uploadError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20"
+                >
+                  <p className="text-sm text-red-400">{uploadError}</p>
+                  <button
+                    onClick={() => setUploadError(null)}
+                    className="mt-2 text-xs text-red-300 hover:text-red-200"
+                  >
+                    Dismiss
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -375,35 +464,60 @@ export default function DocumentAssistant() {
               Uploaded Documents
             </h3>
             
-            <div className="space-y-2">
-              {uploadedFiles.map((doc, index) => {
-                const Icon = fileTypeIcons[doc.type] || fileTypeIcons.default
-                return (
-                  <motion.div
-                    key={doc.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    onClick={() => setSelectedDoc(doc)}
-                    className={`p-3 rounded-xl cursor-pointer transition-all ${
-                      selectedDoc?.id === doc.id
-                        ? 'bg-gold-500/10 border border-gold-500/30'
-                        : 'bg-charcoal-800/50 hover:bg-charcoal-800 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-charcoal-700 flex items-center justify-center">
-                        <Icon className="w-5 h-5 text-gold-glow" />
+            <div className="space-y-2 max-h-96 overflow-auto">
+              {uploadedFiles.length === 0 ? (
+                <p className="text-ivory-400 text-sm text-center py-4">No documents uploaded yet</p>
+              ) : (
+                uploadedFiles.map((doc, index) => {
+                  const Icon = fileTypeIcons[doc.type] || fileTypeIcons.default
+                  return (
+                    <motion.div
+                      key={doc.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className={`p-3 rounded-xl transition-all flex items-center justify-between group ${
+                        selectedDoc?.id === doc.id
+                          ? 'bg-gold-500/10 border border-gold-500/30'
+                          : 'bg-charcoal-800/50 hover:bg-charcoal-800 border border-transparent'
+                      }`}
+                    >
+                      <div
+                        onClick={() => setSelectedDoc(doc)}
+                        className="flex items-center gap-3 flex-1 cursor-pointer"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-charcoal-700 flex items-center justify-center">
+                          <Icon className="w-5 h-5 text-gold-glow" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-ivory-100 truncate">{doc.name}</p>
+                          <p className="text-xs text-ivory-400">{doc.type.toUpperCase()} • {doc.size}</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-ivory-100 truncate">{doc.name}</p>
-                        <p className="text-xs text-ivory-400">{doc.size} • {doc.pages} pages</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-ivory-400" />
-                    </div>
-                  </motion.div>
-                )
-              })}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (confirm(`Delete ${doc.name}?`)) {
+                            try {
+                              await deleteDocument(doc.name)
+                              await loadDocuments()
+                              if (selectedDoc?.id === doc.id) {
+                                setSelectedDoc(null)
+                              }
+                            } catch (error: any) {
+                              setUploadError(error.message || 'Failed to delete document')
+                            }
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/20 rounded"
+                        title={`Delete ${doc.name}`}
+                      >
+                        <X className="w-4 h-4 text-red-400" />
+                      </button>
+                    </motion.div>
+                  )
+                })
+              )}
             </div>
           </div>
         </motion.div>

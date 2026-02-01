@@ -2,7 +2,7 @@
 from typing import Dict, Any, List, Optional
 import asyncio
 from agents import Yantra, Sutra, Agni, Smriti
-from rag.retriever import SimpleRAGRetriever
+from rag.vector_retriever import VectorRAGRetriever
 from evaluation.evaluator import Evaluator
 
 
@@ -22,7 +22,7 @@ class Orchestrator:
         self.sutra = Sutra(ollama_url, model, fast_mode=fast_mode)
         self.agni = Agni(ollama_url, model, fast_mode=fast_mode)
         self.smriti = Smriti()
-        self.rag = SimpleRAGRetriever()
+        self.rag = VectorRAGRetriever()
         self.evaluator = Evaluator()
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement

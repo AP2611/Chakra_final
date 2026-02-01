@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 # Also set environment variable for subprocesses and imported modules
 os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ import asyncio
 from orchestrator import Orchestrator
 from analytics.tracker import AnalyticsTracker
 from utils.background_tasks import run_background_task
+from rag.document_parser import DocumentParser
 
 app = FastAPI(title="Agent System API", version="1.0.0")
 
@@ -462,6 +463,74 @@ async def get_recent_tasks(limit: int = 10):
     """Get recent tasks."""
     tasks = await asyncio.to_thread(analytics.get_recent_tasks, limit)
     return {"tasks": tasks}
+
+
+# RAG Document Upload Endpoints
+@app.post("/rag/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a document to the RAG system."""
+    try:
+        # Read file content
+        content = await file.read()
+        
+        # Parse the file
+        parsed_content = DocumentParser.parse_uploaded_file(content, file.filename)
+        
+        if not parsed_content:
+            raise HTTPException(status_code=400, detail=f"Failed to parse file: {file.filename}")
+        
+        # Add to vector database
+        success = await asyncio.to_thread(
+            orchestrator.rag.add_document,
+            parsed_content,
+            file.filename
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to add document to vector database")
+        
+        return {
+            "success": True,
+            "filename": file.filename,
+            "chunks_added": len(parsed_content.split("\n\n")),
+            "message": f"Document '{file.filename}' uploaded successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
+
+
+@app.get("/rag/documents")
+async def list_documents():
+    """List all documents in the RAG system."""
+    try:
+        documents = await asyncio.to_thread(orchestrator.rag.list_documents)
+        count = await asyncio.to_thread(orchestrator.rag.get_document_count)
+        return {
+            "documents": documents,
+            "total_chunks": count,
+            "count": len(documents)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
+
+@app.delete("/rag/documents/{source}")
+async def delete_document(source: str):
+    """Delete a document from the RAG system."""
+    try:
+        success = await asyncio.to_thread(orchestrator.rag.delete_document, source)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Document '{source}' not found")
+        return {
+            "success": True,
+            "message": f"Document '{source}' deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 
 if __name__ == "__main__":

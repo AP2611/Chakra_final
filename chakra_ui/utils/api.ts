@@ -200,5 +200,59 @@ export async function getRecentTasks(limit: number = 10) {
   }
 }
 
+/**
+ * RAG Document Upload API functions
+ */
+export async function uploadDocument(file: File): Promise<{ success: boolean; filename: string; message: string }> {
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    const response = await fetch(`${API_URL}/rag/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to upload document')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error uploading document:', error)
+    throw error
+  }
+}
+
+export async function listDocuments(): Promise<{ documents: string[]; total_chunks: number; count: number }> {
+  try {
+    const response = await fetch(`${API_URL}/rag/documents`)
+    if (!response.ok) throw new Error('Failed to fetch documents')
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching documents:', error)
+    return { documents: [], total_chunks: 0, count: 0 }
+  }
+}
+
+export async function deleteDocument(source: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await fetch(`${API_URL}/rag/documents/${encodeURIComponent(source)}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to delete document')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error deleting document:', error)
+    throw error
+  }
+}
+
 export { API_URL }
 
