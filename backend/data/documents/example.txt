@@ -1,0 +1,39 @@
+React Hooks Best Practices
+
+React hooks are a powerful feature introduced in React 16.8 that allow you to use state and other React features in functional components.
+
+Key Hooks:
+
+1. useState - Manages component state
+   - Returns a stateful value and a function to update it
+   - Example: const [count, setCount] = useState(0)
+
+2. useEffect - Handles side effects
+   - Runs after render
+   - Can return a cleanup function
+   - Dependencies array controls when it runs
+
+3. useCallback - Memoizes functions
+   - Prevents unnecessary re-renders
+   - Useful for passing functions to child components
+
+4. useMemo - Memoizes computed values
+   - Caches expensive calculations
+   - Only recomputes when dependencies change
+
+Best Practices:
+
+- Always call hooks at the top level of your component
+- Never call hooks inside loops, conditions, or nested functions
+- Use dependency arrays correctly in useEffect
+- Clean up subscriptions and timers in useEffect cleanup
+- Use useCallback and useMemo to optimize performance
+- Custom hooks should start with "use"
+
+Performance Tips:
+
+- Avoid creating objects/arrays in render
+- Use React.memo for expensive components
+- Split large components into smaller ones
+- Use code splitting for large applications
+

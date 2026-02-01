@@ -182,7 +182,7 @@ docker ps
 ### 3. Setup Backend
 
 ```bash
-cd Chakra/backend
+cd backend
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -224,7 +224,7 @@ curl http://localhost:8000/analytics/metrics
 ### Backend Dependencies
 
 ```bash
-cd Chakra/backend
+cd backend
 pip install -r requirements.txt
 ```
 
@@ -527,15 +527,14 @@ Access at: `http://localhost:3000` (Analytics tab)
 
 ```
 chakra_full/
-├── Chakra/
-│   └── backend/
-│       ├── agents/          # Agent implementations
-│       ├── analytics/        # Analytics tracker
-│       ├── evaluation/       # Solution evaluator
-│       ├── rag/             # RAG retriever
-│       ├── utils/           # Utilities (background tasks)
-│       ├── api.py           # FastAPI server
-│       └── orchestrator.py  # Agent orchestrator
+├── backend/                # Backend (FastAPI + Python)
+│   ├── agents/             # Agent implementations
+│   ├── analytics/          # Analytics tracker
+│   ├── evaluation/         # Solution evaluator
+│   ├── rag/               # RAG retriever
+│   ├── utils/             # Utilities (background tasks)
+│   ├── api.py             # FastAPI server
+│   └── orchestrator.py    # Agent orchestrator
 ├── chakra_ui/              # Next.js frontend
 │   ├── app/                # Next.js app router
 │   ├── components/        # React components
@@ -549,7 +548,7 @@ chakra_full/
 
 ```bash
 # Backend agent tests
-cd Chakra/backend
+cd backend
 python test_agents_comprehensive.py
 
 # Frontend-backend connection test
@@ -564,7 +563,7 @@ python test_simple_diagnostic.py
 
 **Backend:**
 ```bash
-cd Chakra/backend
+cd backend
 python api.py
 # Or with auto-reload:
 uvicorn api:app --reload --host 0.0.0.0 --port 8000
@@ -646,8 +645,8 @@ redis-cli ping
 **Solution:**
 ```bash
 # Clear Python cache
-find Chakra/backend -type d -name "__pycache__" -exec rm -rf {} +
-find Chakra/backend -name "*.pyc" -delete
+find backend -type d -name "__pycache__" -exec rm -rf {} +
+find backend -name "*.pyc" -delete
 
 # Restart backend
 ```
