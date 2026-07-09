@@ -1,0 +1,119 @@
+{
+  "config": {
+    "model": "mistral:latest",
+    "ollama_url": "http://localhost:11434",
+    "max_iterations": 5,
+    "min_improvement": 0.5,
+    "fast_mode": false,
+    "output_dir": "experiment_results",
+    "seed": 42
+  },
+  "results": [
+    {
+      "task": "Write a Python function to check if a number is prime",
+      "category": "code_algorithms",
+      "baseline": {
+        "task": "Write a Python function to check if a number is prime",
+        "output": "To create a Python function that checks if a number is prime, we can use the following approach: A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself. Here's an efficient way to implement this function using a loop:\n\n```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    elif n <= 3:\n        return True\n    elif n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```\n\nThis function checks for divisibility up to the square root of `n`, making it more efficient than checking every number up to `n-1`.\n\nHere's a breakdown of the code:\n\n1. The function takes an integer `n` as input.\n2. If `n` is less than or equal to 1, it returns False since 0 and negative numbers are not prime.\n3. If `n` is less than or equal to 3, it returns True because 2 and 3 are the first prime numbers.\n4. Check for divisibility by 2 and 3 (the only even primes) and return False if found.\n5. Initialize a variable `i` starting from 5 (since all odd numbers greater than 3 can be checked using multiples of 6).\n6. Iterate through multiples of 6 up to the square root of `n`. If any of these are divisors, return False.\n7. If no divisors were found, return True indicating that `n` is prime.",
+        "time": 17.99057412147522,
+        "agent": "Yantra (baseline)",
+        "status": "success"
+      },
+      "multi_agent": {
+        "task": "Write a Python function to check if a number is prime",
+        "status": "failed",
+        "error": "Invalid control character at: line 2 column 190 (char 191)"
+      },
+      "timestamp": "2026-07-05T13:05:13.705057"
+    },
+    {
+      "task": "Write a Python function to reverse a linked list",
+      "category": "code_algorithms",
+      "baseline": {
+        "task": "Write a Python function to reverse a linked list",
+        "output": "To reverse a linked list in Python, we can create a recursive function that takes the head of the list as input and returns the reversed list. Here's the implementation:\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_linked_list(head: ListNode) -> ListNode:\n    if not head or not head.next:\n        return head\n\n    reversed_head = reverse_linked_list(head.next)\n    head.next.next = head\n    head.next = None\n    return reversed_head\n```\n\nIn this code, the `ListNode` class represents the nodes in the linked list, and the `reverse_linked_list()` function takes the head of the list as input and recursively builds a new reversed list by updating the next pointers. The base case for the recursion is when we encounter an empty list or a list with only one node.\n\nTo test this implementation, you can create a linked list and print its reverse:\n\n```python\n# Creating a sample linked list\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nreversed_head = reverse_linked_list(head)\n\n# Printing the reversed linked list\nwhile reversed_head:\n    print(reversed_head.val, end=\" -> \")\n    reversed_head = reversed_head.next\nprint(\"None\")\n```\n\nThis code creates a linked list with the values 1, 2, 3, and 4, then prints the reverse of the list (which should be 4, 3, 2, 1).",
+        "time": 19.37963104248047,
+        "agent": "Yantra (baseline)",
+        "status": "success"
+      },
+      "multi_agent": {
+        "task": "Write a Python function to reverse a linked list",
+        "final_solution": "In this refactored version, I've made a few improvements to the original code while maintaining its efficiency and clarity. Here's the updated Python function to reverse a linked list:\n\n```python\nclass ListNode:\n    def __init__(self, val=None):\n        self.val = val\n        self.next = None\n\ndef reverse_list(head: ListNode) -> ListNode:\n    prev_node = None\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # store the next node\n        current_node.next = prev_node   # reverse linking\n        prev_node = current_node       # move prev and current pointers\n        current_node = next_node\n\n    return prev_node  # the new head of the reversed list is the last non-None node we encountered\n\ndef print_linked_list(head: ListNode):\n    while head is not None:\n        print(head.val, end=\" -> \")\n        head = head.next\n    print(\"None\")\n\n# Test the reversed linked list\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nprint(\"Original Linked List:\")\nprint_linked_list(head)\n\nreversed_head = reverse_list(head)\n\nprint(\"Reversed Linked List:\")\nprint_linked_list(reversed_head)\n```\n\nIn this version, I've added a helper function `print_linked_list()` to make printing the linked list easier and more readable. Additionally, I've made minor improvements to the variable names for better clarity and consistency.\n\nThis solution follows best practices by:\n1. Correctness - fix all bugs and errors (none found in the original solution)\n2. Performance - optimized where possible (O(n) time complexity, O(1) space complexity)\n3. Clarity - made logic clear and well-structured\n4. Grounding - ensured all claims are supported (since no RAG context was provided, I did not evaluate groundedness in this solution)",
+        "final_score": 9.7,
+        "iterations": [
+          {
+            "iteration": 1,
+            "yantra_output": "In Python, linked lists are not as commonly used as arrays or other data structures due to the dynamic nature of Python. However, for educational purposes, let's create a simple singly-linked list and write a function to reverse it. Here's an example:\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head: ListNode) -> ListNode:\n    prev_node = None\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # store the next node\n        current_node.next = prev_node   # reverse linking\n        prev_node = current_node       # move prev and current pointers\n        current_node = next_node\n\n    return prev_node  # the new head of the reversed list is the last non-None node we encountered\n```\n\nIn this example, I've created a custom ListNode class to represent the linked list nodes. The `reverse_list()` function iteratively reverses the links between the nodes by swapping the `next` pointers. The final node (previously the head) becomes the new head of the reversed list.\n\nTo test this code, you can create a linked list and print it before and after reversing:\n\n```python\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nreversed_head = reverse_list(head)\n\nwhile reversed_head is not None:\n    print(reversed_head.val, end=\" -> \")\n    reversed_head = reversed_head.next\nprint(\"None\")\n```\n\nThis will output: `4 -> 3 -> 2 -> 1 -> None`, showing that the linked list has been correctly reversed.",
+            "sutra_critique": "The provided solution is a well-written and efficient implementation of reversing a singly linked list in Python. The code is clear, easy to understand, and follows good programming practices. There are no bugs or errors found, and the logic is accurate. The solution does not appear to have any significant inefficiencies. However, for completeness, it could be noted that the space complexity of this algorithm is O(1) (constant), while the time complexity is O(n) where n is the number of nodes in the list. Regarding edge cases, the provided solution should cover all common edge cases for a singly linked list, but it would be beneficial to include some tests for empty or single-node lists to ensure correct behavior in those scenarios. Since no RAG context was provided, I am not evaluating groundedness.",
+            "sutra_scores": {
+              "correctness": 10,
+              "accuracy": 10,
+              "efficiency": 9,
+              "clarity": 10,
+              "edge_case_coverage": 8,
+              "groundedness": null
+            },
+            "agni_output": "In this refactored version, I've made a few improvements to the original code while maintaining its efficiency and clarity. Here's the updated Python function to reverse a linked list:\n\n```python\nclass ListNode:\n    def __init__(self, val=None):\n        self.val = val\n        self.next = None\n\ndef reverse_list(head: ListNode) -> ListNode:\n    prev_node = None\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # store the next node\n        current_node.next = prev_node   # reverse linking\n        prev_node = current_node       # move prev and current pointers\n        current_node = next_node\n\n    return prev_node  # the new head of the reversed list is the last non-None node we encountered\n\ndef print_linked_list(head: ListNode):\n    while head is not None:\n        print(head.val, end=\" -> \")\n        head = head.next\n    print(\"None\")\n\n# Test the reversed linked list\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nprint(\"Original Linked List:\")\nprint_linked_list(head)\n\nreversed_head = reverse_list(head)\n\nprint(\"Reversed Linked List:\")\nprint_linked_list(reversed_head)\n```\n\nIn this version, I've added a helper function `print_linked_list()` to make printing the linked list easier and more readable. Additionally, I've made minor improvements to the variable names for better clarity and consistency.\n\nThis solution follows best practices by:\n1. Correctness - fix all bugs and errors (none found in the original solution)\n2. Performance - optimized where possible (O(n) time complexity, O(1) space complexity)\n3. Clarity - made logic clear and well-structured\n4. Grounding - ensured all claims are supported (since no RAG context was provided, I did not evaluate groundedness in this solution)",
+            "score": 9.7,
+            "raw_composite": 9.7,
+            "smoothed": false,
+            "improvement": 0.0
+          },
+          {
+            "iteration": 2,
+            "yantra_output": "To reverse a linked list in Python, we can create a new recursive function called `reverse_list()`. Here's the code for the function:\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head: ListNode) -> ListNode:\n    if not head or not head.next:\n        return head\n\n    reversed_tail = reverse_list(head.next)\n    head.next.next = head\n    head.next = None\n    return reversed_tail\n```\n\nIn this code, we first define a `ListNode` class for representing the linked list nodes. Then we create the `reverse_list()` function that takes the head of the linked list as an argument and returns the new head after reversing the list. The function uses recursion to reverse the linked list in-place.\n\nTo test the function, you can create a sample linked list and call the `reverse_list()` function on it:\n\n```python\n# Sample linked list\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nreversed_head = reverse_list(head)\n\nwhile reversed_head:\n    print(reversed_head.val, end=\" -> \")\n    reversed_head = reversed_head.next\n\n# Output: 4 -> 3 -> 2 -> 1 -> None\n```\n\nThis code creates a linked list with the values `[1, 2, 3, 4]`, calls the `reverse_list()` function on it, and then prints the reversed list. The output shows that the linked list has been successfully reversed.",
+            "sutra_critique": "The provided solution for reversing a linked list in Python is correct and efficient. It uses recursion effectively to reverse the linked list in-place. The code is clear and easy to understand. However, there's one minor issue: the function does not handle the case when the input list has only one node or no nodes at all. To fix this, we can add a base case for an empty list or a single-node list in the `reverse_list()` function.",
+            "sutra_scores": {
+              "correctness": 9,
+              "accuracy": 8,
+              "efficiency": 10,
+              "clarity": 10,
+              "edge_case_coverage": 7,
+              "groundedness": null
+            },
+            "agni_output": "Here's an improved version of the `reverse_list()` function that handles empty or single-node lists, ensuring correctness and clarity:\n\n```python\nclass ListNode:\n    def __init__(self, val=None):\n        self.val = val\n        self.next = None\n\ndef reverse_list(head: ListNode) -> ListNode:\n    if not head or not head.next:\n        return head  # Base case for empty or single-node list\n\n    reversed_tail, current = reverse_list(head.next), head\n    current.next.next = None  # Disconnect the current node from the original list\n    current.next = reversed_tail  # Connect the current node to the new reversed tail\n    return reversed_tail\n```\n\nIn this revised code, we've added a base case for an empty or single-node list (`if not head or not head.next:`). This ensures that the function correctly handles these special cases and returns the original head if there is only one node in the linked list. The rest of the logic remains unchanged, as it already follows best practices for correctness, performance, clarity, and grounding.\n\nTo test the updated function, you can use the same sample linked list from before:\n\n```python\n# Sample linked list\nhead = ListNode(1)\nhead.next = ListNode(2)\nhead.next.next = ListNode(3)\nhead.next.next.next = ListNode(4)\n\nreversed_head = reverse_list(head)\n\nwhile reversed_head:\n    print(reversed_head.val, end=\" -> \")\n    reversed_head = reversed_head.next\n\n# Output: 4 -> 3 -> 2 -> 1 -> None\n```\n\nThis updated code will produce the same output as the original solution but now handles empty or single-node lists correctly.",
+            "score": 8.75,
+            "raw_composite": 8.75,
+            "smoothed": false,
+            "improvement": -0.9499999999999993
+          }
+        ],
+        "total_iterations": 2,
+        "time": 157.14406204223633,
+        "agent": "Multi-Agent Loop",
+        "status": "success"
+      },
+      "timestamp": "2026-07-05T13:08:10.232613"
+    },
+    {
+      "task": "Write a Python function to find the maximum subarray sum (Kadane's algorithm)",
+      "category": "code_algorithms",
+      "baseline": {
+        "task": "Write a Python function to find the maximum subarray sum (Kadane's algorithm)",
+        "output": "Sure! Here is a Python function that implements Kadane's algorithm to find the maximum subarray sum:\n\n```python\ndef max_subarray_sum(numbers):\n    max_so_far = numbers[0]\n    current_max = numbers[0]\n\n    for num in numbers[1:]:\n        current_max = max(num, current_max + num)\n        max_so_far = max(max_so_far, current_max)\n\n    return max_so_far\n```\n\nThis function takes a list of numbers as input and returns the maximum sum of any contiguous subarray within that list. The function initializes two variables `max_so_far` and `current_max`, then iterates through each number in the list. For each number, it checks if adding the current number to the current max would result in a higher value than the current number itself. If so, it updates `current_max`. Additionally, it compares `current_max` and `max_so_far`, updating `max_so_far` whenever necessary. Finally, the function returns the maximum sum found (`max_so_far`).\n\nHere's an example usage of this function:\n\n```python\nnumbers = [-2, 1, -3, 4, -1, 2, 1, -5, 4]\nresult = max_subarray_sum(numbers)\nprint(\"The maximum subarray sum is:\", result)\n```\n\nOutput:\n\n```\nThe maximum subarray sum is: 6\n```",
+        "time": 25.16493320465088,
+        "agent": "Yantra (baseline)",
+        "status": "success"
+      },
+      "multi_agent": {
+        "task": "Write a Python function to find the maximum subarray sum (Kadane's algorithm)",
+        "status": "failed",
+        "error": "Invalid control character at: line 2 column 446 (char 447)"
+      },
+      "timestamp": "2026-07-05T13:10:46.424204"
+    }
+  ],
+  "summary": {
+    "total_tasks": 3,
+    "successful_baseline": 3,
+    "successful_multi": 1,
+    "baseline_time_mean": 20.845046122868855,
+    "multi_time_mean": 157.14406204223633,
+    "final_score_mean": 9.7,
+    "final_score_std": 0.0,
+    "iterations_mean": 2.0,
+    "improvement_mean": 0.0,
+    "improvement_std": 0.0,
+    "num_tasks_improved": 0
+  }
+}

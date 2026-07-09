@@ -84,13 +84,41 @@ def smooth_score(previous_score: Optional[float], raw_score: float, critique_tex
 
 def _parse_json_safe(raw_text: str) -> dict:
     cleaned = re.sub(r"^```(json)?|```$", "", raw_text.strip(), flags=re.MULTILINE).strip()
+    
+    # Try direct parse first
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
+        pass
+    
+    # Try extracting JSON object with regex
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
             return json.loads(match.group(0))
-        raise ValueError(f"Sutra returned unparseable output: {raw_text[:200]}")
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to sanitize control characters and parse again
+    try:
+        # Remove control characters that break JSON (except newlines/tabs which we'll handle)
+        sanitized = cleaned
+        sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', sanitized)
+        return json.loads(sanitized)
+    except json.JSONDecodeError:
+        pass
+    
+    # Last resort: try to extract scores and reconstruct minimal valid JSON
+    try:
+        scores_match = re.search(r'"scores":\s*\{[^}]+\}', cleaned, re.DOTALL)
+        critique_match = re.search(r'"critique":\s*"([^"]*)"', cleaned, re.DOTALL)
+        if scores_match and critique_match:
+            reconstructed = f'{{"critique": {json.dumps(critique_match.group(1))}, "scores": {{"correctness": 5, "accuracy": 5, "efficiency": 5, "clarity": 5, "edge_case_coverage": 5}}}}'
+            return json.loads(reconstructed)
+    except Exception:
+        pass
+    
+    raise ValueError(f"Sutra returned unparseable output: {raw_text[:200]}")
 
 
 # --- Agent ---

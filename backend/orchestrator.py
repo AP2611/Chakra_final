@@ -3,7 +3,6 @@ from typing import Dict, Any, List, Optional
 import asyncio
 from agents import Yantra, Sutra, Agni, Smriti
 from agents.sutra import SutraOutput
-from rag.vector_retriever import VectorRAGRetriever
 
 
 class Orchestrator:
@@ -22,10 +21,18 @@ class Orchestrator:
         self.sutra = Sutra(ollama_url, model, fast_mode=fast_mode)
         self.agni = Agni(ollama_url, model, fast_mode=fast_mode)
         self.smriti = Smriti()
-        self.rag = VectorRAGRetriever()
+        self._rag = None
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
         self.fast_mode = fast_mode
+
+    @property
+    def rag(self):
+        """Lazy-load RAG retriever only when needed to avoid heavy imports at startup."""
+        if self._rag is None:
+            from rag.vector_retriever import VectorRAGRetriever
+            self._rag = VectorRAGRetriever()
+        return self._rag
 
     async def process(
         self,
@@ -78,65 +85,89 @@ class Orchestrator:
                 "improvement": None
             }
 
-            # Step 1: Yantra generates solution
-            yantra_result = await self.yantra.process(
-                task=task,
-                context=context,
-                rag_chunks=rag_chunks,
-                past_examples=past_examples if iteration == 0 else None  # Only use examples in first iteration
-            )
-            iteration_data["yantra_output"] = yantra_result["output"]
-            current_solution = yantra_result["output"]
+            try:
+                # Step 1: Yantra generates solution
+                yantra_result = await self.yantra.process(
+                    task=task,
+                    context=context,
+                    rag_chunks=rag_chunks,
+                    past_examples=past_examples if iteration == 0 else None  # Only use examples in first iteration
+                )
+                iteration_data["yantra_output"] = yantra_result["output"]
+                current_solution = yantra_result["output"]
 
-            # Step 2: Sutra critiques with structured scoring
-            sutra_result: SutraOutput = await self.sutra.process(
-                yantra_output=current_solution,
-                original_task=task,
-                rag_chunks=rag_chunks,
-                previous_score=previous_composite
-            )
-            iteration_data["sutra_critique"] = sutra_result.critique
-            iteration_data["sutra_scores"] = sutra_result.scores.model_dump()
-            iteration_data["raw_composite"] = sutra_result.raw_composite
-            iteration_data["smoothed"] = sutra_result.composite_score != sutra_result.raw_composite
+                # Step 2: Sutra critiques with structured scoring
+                sutra_result: SutraOutput = await self.sutra.process(
+                    yantra_output=current_solution,
+                    original_task=task,
+                    rag_chunks=rag_chunks,
+                    previous_score=previous_composite
+                )
+                iteration_data["sutra_critique"] = sutra_result.critique
+                iteration_data["sutra_scores"] = sutra_result.scores.model_dump()
+                iteration_data["raw_composite"] = sutra_result.raw_composite
+                iteration_data["smoothed"] = sutra_result.composite_score != sutra_result.raw_composite
 
-            # Step 3: Agni improves
-            agni_result = await self.agni.process(
-                original_output=current_solution,
-                critique=sutra_result.critique,
-                task=task,
-                rag_chunks=rag_chunks
-            )
-            iteration_data["agni_output"] = agni_result["improved_output"]
-            current_solution = agni_result["improved_output"]
+                # Step 3: Agni improves
+                agni_result = await self.agni.process(
+                    original_output=current_solution,
+                    critique=sutra_result.critique,
+                    task=task,
+                    rag_chunks=rag_chunks
+                )
+                iteration_data["agni_output"] = agni_result["improved_output"]
+                current_solution = agni_result["improved_output"]
 
-            # Step 4: Use Sutra's composite score (1-10 scale)
-            score = sutra_result.composite_score
-            iteration_data["score"] = score
+                # Step 4: Use Sutra's composite score (1-10 scale)
+                score = sutra_result.composite_score
+                iteration_data["score"] = score
 
-            # Calculate improvement
-            if previous_composite is not None:
-                improvement = score - previous_composite
-                iteration_data["improvement"] = improvement
-            else:
-                iteration_data["improvement"] = 0.0
+                # Calculate improvement
+                if previous_composite is not None:
+                    improvement = score - previous_composite
+                    iteration_data["improvement"] = improvement
+                else:
+                    iteration_data["improvement"] = 0.0
 
-            iterations.append(iteration_data)
+                iterations.append(iteration_data)
 
-            # Update best solution
-            if score > best_score:
-                best_score = score
-                best_solution = current_solution
+                # Update best solution
+                if score > best_score:
+                    best_score = score
+                    best_solution = current_solution
 
-            previous_composite = score
+                previous_composite = score
 
-            # Check if we should continue
-            if iteration > 0:
-                prev_score = iterations[-2]["score"]
-                improvement = score - prev_score
-                if improvement < self.min_improvement:
-                    # Score plateaued, stop
-                    break
+                # Check if we should continue
+                if iteration > 0:
+                    prev_score = iterations[-2]["score"]
+                    improvement = score - prev_score
+                    
+                    # Stop if score degraded significantly (more than 1.0 point drop)
+                    if improvement < -1.0:
+                        print(f"  [Orchestrator] Score degraded by {abs(improvement):.2f} points, stopping early")
+                        break
+                    
+                    # Stop if improvement is below threshold
+                    if improvement < self.min_improvement:
+                        # Score plateaued, stop
+                        break
+                        
+            except Exception as e:
+                print(f"  [Orchestrator] Iteration {iteration + 1} failed: {e}")
+                # If we have a previous solution, continue with it
+                if current_solution is not None:
+                    iterations.append(iteration_data)
+                    # Use previous score or a default
+                    score = previous_composite if previous_composite is not None else 5.0
+                    iteration_data["score"] = score
+                    iteration_data["improvement"] = 0.0
+                    iteration_data["error"] = str(e)
+                    previous_composite = score
+                    continue
+                else:
+                    # No previous solution to fall back to, abort
+                    raise
 
         # Store best solution in memory (threshold adjusted for 1-10 scale)
         if best_score > 6.0:  # Only store if score is decent

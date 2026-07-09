@@ -1,0 +1,33 @@
+{
+  "config": {
+    "model": "mistral:latest",
+    "ollama_url": "http://localhost:11434",
+    "max_iterations": 5,
+    "min_improvement": 0.5,
+    "fast_mode": false,
+    "output_dir": "experiment_results",
+    "seed": 42
+  },
+  "results": [
+    {
+      "task": "Write a Python function to check if a number is prime",
+      "category": "code_algorithms",
+      "baseline": {
+        "task": "Write a Python function to check if a number is prime",
+        "output": "To create a Python function that checks if a number is prime, we can use the following approach: A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself. Here's an efficient way to implement this function using a loop:\n\n```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    elif n <= 3:\n        return True\n    elif n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```\n\nThis function checks for divisibility up to the square root of `n`, making it more efficient than checking every number up to `n-1`.\n\nHere's a breakdown of the code:\n\n1. The function takes an integer `n` as input.\n2. If `n` is less than or equal to 1, it returns False since 0 and negative numbers are not prime.\n3. If `n` is less than or equal to 3, it returns True because 2 and 3 are the first prime numbers.\n4. Check for divisibility by 2 and 3 (the only even primes) and return False if found.\n5. Initialize a variable `i` starting from 5 (since all odd numbers greater than 3 can be checked using multiples of 6).\n6. Iterate through multiples of 6 up to the square root of `n`. If any of these are divisors, return False.\n7. If no divisors were found, return True indicating that `n` is prime.",
+        "time": 17.99057412147522,
+        "agent": "Yantra (baseline)",
+        "status": "success"
+      },
+      "multi_agent": {
+        "task": "Write a Python function to check if a number is prime",
+        "status": "failed",
+        "error": "Invalid control character at: line 2 column 190 (char 191)"
+      },
+      "timestamp": "2026-07-05T13:05:13.705057"
+    }
+  ],
+  "summary": {
+    "error": "No successful multi-agent runs"
+  }
+}

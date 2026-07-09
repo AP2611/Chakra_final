@@ -35,6 +35,7 @@ EXPERIMENT_CONFIG = {
     "fast_mode": False,  # Use normal mode for better quality
     "output_dir": "experiment_results",
     "seed": 42,
+    "resume": True,  # Resume from latest results file if available
 }
 
 # Task categories for diverse evaluation
@@ -168,13 +169,49 @@ async def run_experiment_task(task_data: Dict[str, Any], config: Dict) -> Dict[s
     }
 
 
+def load_latest_results(config: Dict) -> List[Dict[str, Any]]:
+    """Load the latest results file for resuming."""
+    output_dir = config["output_dir"]
+    if not os.path.exists(output_dir):
+        return []
+    
+    # Find all result files
+    result_files = [f for f in os.listdir(output_dir) if f.startswith("results_") and f.endswith(".json")]
+    if not result_files:
+        return []
+    
+    # Sort by filename (which includes timestamp)
+    result_files.sort(reverse=True)
+    latest_file = os.path.join(output_dir, result_files[0])
+    
+    try:
+        with open(latest_file, 'r') as f:
+            data = json.load(f)
+            return data.get("results", [])
+    except Exception as e:
+        print(f"Warning: Could not load latest results file: {e}")
+        return []
+
+
 async def run_full_experiment(config: Dict) -> List[Dict[str, Any]]:
     """Run experiment on all tasks."""
     results = []
-    total = len(ALL_TASKS)
+    completed_tasks = set()
     
-    for i, task_data in enumerate(ALL_TASKS, 1):
-        print(f"\n[{i}/{total}] Processing task...")
+    # Load existing results if resuming
+    if config.get("resume", False):
+        existing_results = load_latest_results(config)
+        results = existing_results
+        completed_tasks = {r["task"] for r in existing_results if r.get("status") != "fatal_error"}
+        print(f"Resuming from {len(completed_tasks)} completed tasks")
+    
+    total = len(ALL_TASKS)
+    remaining = [t for t in ALL_TASKS if t["task"] not in completed_tasks]
+    
+    print(f"Total tasks: {total}, Remaining: {len(remaining)}")
+    
+    for i, task_data in enumerate(remaining, 1):
+        print(f"\n[{len(completed_tasks) + i}/{total}] Processing task...")
         try:
             result = await run_experiment_task(task_data, config)
             results.append(result)
@@ -183,7 +220,7 @@ async def run_full_experiment(config: Dict) -> List[Dict[str, Any]]:
             save_results(results, config)
             
         except Exception as e:
-            print(f"  FATAL ERROR on task {i}: {e}")
+            print(f"  FATAL ERROR on task {len(completed_tasks) + i}: {e}")
             results.append({
                 "task": task_data["task"],
                 "category": task_data["category"],
