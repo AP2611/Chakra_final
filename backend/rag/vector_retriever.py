@@ -163,31 +163,40 @@ class VectorRAGRetriever:
         self.client = None
         self.collection = None
 
-        # Lazy, guarded import of heavy dependencies
-        try:
-            from sentence_transformers import SentenceTransformer
-            import chromadb
-            from chromadb.config import Settings
+        # Lazy, guarded import of heavy dependencies.
+        # NOTE: sentence-transformers / chromadb can SEGFAULT at import or model-
+        # load time in some environments (uncatchable SIGSEGV). To keep the system
+        # robust and reproducible, the vector path is OPT-IN via the env var
+        # CHAKRA_USE_VECTOR_RAG=1. By default we use the pure-numpy TF-IDF fallback,
+        # which needs no external dependencies and never crashes.
+        if os.getenv("CHAKRA_USE_VECTOR_RAG") == "1":
+            try:
+                from sentence_transformers import SentenceTransformer
+                import chromadb
+                from chromadb.config import Settings
 
-            print("Loading embedding model...")
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            print("✓ Embedding model loaded (all-MiniLM-L6-v2)")
+                print("Loading embedding model...")
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                print("✓ Embedding model loaded (all-MiniLM-L6-v2)")
 
-            chroma_dir = os.path.join(self.documents_dir, "chroma_db")
-            os.makedirs(chroma_dir, exist_ok=True)
-            self.client = chromadb.PersistentClient(
-                path=chroma_dir,
-                settings=Settings(anonymized_telemetry=False)
-            )
-            self.collection = self.client.get_or_create_collection(
-                name=collection_name,
-                metadata={"hnsw:space": "cosine"}
-            )
-            doc_count = len(self.collection.get()['ids'])
-            print(f"✓ ChromaDB initialized: {doc_count} document chunks")
-        except Exception as e:
-            print(f"⚠ Vector RAG unavailable ({type(e).__name__}: {e})")
-            print("⚠ Falling back to TF-IDF retriever (no external deps)")
+                chroma_dir = os.path.join(self.documents_dir, "chroma_db")
+                os.makedirs(chroma_dir, exist_ok=True)
+                self.client = chromadb.PersistentClient(
+                    path=chroma_dir,
+                    settings=Settings(anonymized_telemetry=False)
+                )
+                self.collection = self.client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"hnsw:space": "cosine"}
+                )
+                doc_count = len(self.collection.get()['ids'])
+                print(f"✓ ChromaDB initialized: {doc_count} document chunks")
+            except Exception as e:
+                print(f"⚠ Vector RAG unavailable ({type(e).__name__}: {e})")
+                print("⚠ Falling back to TF-IDF retriever (no external deps)")
+                self._fallback = SimpleTfidfRetriever(documents_dir, collection_name)
+        else:
+            print("ℹ Vector RAG disabled (set CHAKRA_USE_VECTOR_RAG=1 to enable). Using TF-IDF fallback.")
             self._fallback = SimpleTfidfRetriever(documents_dir, collection_name)
 
         # Index any documents already present in the documents directory
