@@ -1,0 +1,9 @@
+Chakra is a multi-agent system for code generation and question answering. It coordinates four specialized agents: Yantra generates initial solutions, Sutra critiques them with structured scoring across correctness, accuracy, efficiency, clarity, and edge-case coverage, Agni improves the solution by applying targeted fixes, and Smriti stores successful solutions in a memory database for reuse.
+
+The recursive learning loop runs for a fixed number of iterations. In each iteration, Yantra produces a candidate solution, Sutra scores it on a 1-10 composite scale, and Agni rewrites the solution to address the critique. The loop stops early when the score plateaus or degrades.
+
+Chakra supports Retrieval-Augmented Generation (RAG). When RAG is enabled, relevant documents are retrieved from a vector store and provided to the agents as grounding context. This improves factual accuracy and reduces hallucination on document-based questions.
+
+For code tasks, Chakra can validate generated Python by executing it in an isolated subprocess. If execution fails, the error message is fed back to Sutra and Agni so the next iteration fixes the specific failure. This execution-based signal provides a non-LLM judge of correctness.
+
+The system is designed to be robust: malformed agent outputs are recovered via defensive JSON parsing, and degraded iterations trigger early stopping to preserve the best solution found.

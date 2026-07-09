@@ -28,14 +28,19 @@ sys.path.insert(0, 'backend')
 # =============================================================================
 
 EXPERIMENT_CONFIG = {
-    "model": "mistral:latest",  # Use available model (7B parameters)
+    "model": "mistral:latest",  # Default model (used when split not specified)
+    "generator_model": "qwen2.5:1.5b",  # Weaker generator -> creates headroom for improvement
+    "critic_model": "mistral:latest",   # Stronger critic evaluates & improves
     "ollama_url": "http://localhost:11434",
     "max_iterations": 5,
     "min_improvement": 0.5,
     "fast_mode": False,  # Use normal mode for better quality
     "output_dir": "experiment_results",
     "seed": 42,
+    "use_rag": False,  # Global RAG toggle; document_qa tasks enable it per-task
     "resume": True,  # Resume from latest results file if available
+    # NOTE: set "resume": False for a clean run when testing the new pipeline,
+    # since the loop mechanics (validation, diff-based Agni, split models) changed.
 }
 
 # Task categories for diverse evaluation
@@ -68,13 +73,20 @@ TASK_CATEGORIES = {
         "Write a brief summary of how neural networks learn",
         "Describe the difference between TCP and UDP",
     ],
+    "document_qa": [
+        "What are the four specialized agents in Chakra and what does each do?",
+        "How does the recursive learning loop decide when to stop?",
+        "How does Chakra validate generated Python code, and what happens on failure?",
+        "What is the purpose of RAG in Chakra and how does it reduce hallucination?",
+    ],
 }
 
-# Combine all tasks
+# Combine all tasks. document_qa tasks enable RAG; others follow the global toggle.
 ALL_TASKS = []
 for category, tasks in TASK_CATEGORIES.items():
     for task in tasks:
-        ALL_TASKS.append({"task": task, "category": category})
+        use_rag = True if category == "document_qa" else EXPERIMENT_CONFIG["use_rag"]
+        ALL_TASKS.append({"task": task, "category": category, "use_rag": use_rag})
 
 
 # =============================================================================
@@ -86,7 +98,7 @@ async def run_single_agent_baseline(task: str, config: Dict) -> Dict[str, Any]:
     from agents.yantra import Yantra
     yantra = Yantra(
         ollama_url=config["ollama_url"],
-        model=config["model"],
+        model=config.get("generator_model", config["model"]),
         fast_mode=config["fast_mode"]
     )
     
@@ -102,12 +114,14 @@ async def run_single_agent_baseline(task: str, config: Dict) -> Dict[str, Any]:
     }
 
 
-async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False) -> Dict[str, Any]:
+async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False, is_code: bool = True) -> Dict[str, Any]:
     """Run full multi-agent recursive learning loop."""
     from orchestrator import Orchestrator
     orchestrator = Orchestrator(
         ollama_url=config["ollama_url"],
         model=config["model"],
+        generator_model=config.get("generator_model", config["model"]),
+        critic_model=config.get("critic_model", config["model"]),
         max_iterations=config["max_iterations"],
         min_improvement=config["min_improvement"],
         fast_mode=config["fast_mode"]
@@ -117,7 +131,7 @@ async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False) -
     result = await orchestrator.process(
         task=task,
         use_rag=use_rag,
-        is_code=True
+        is_code=is_code
     )
     elapsed = time.time() - start_time
     
@@ -136,10 +150,12 @@ async def run_experiment_task(task_data: Dict[str, Any], config: Dict) -> Dict[s
     """Run both baseline and multi-agent on a single task."""
     task = task_data["task"]
     category = task_data["category"]
+    use_rag = task_data.get("use_rag", config.get("use_rag", False))
+    is_code = category != "document_qa"
     
     print(f"\n{'='*60}")
     print(f"Task: {task[:60]}...")
-    print(f"Category: {category}")
+    print(f"Category: {category}  | RAG: {use_rag} | Code: {is_code}")
     print(f"{'='*60}")
     
     # Run baseline
@@ -154,7 +170,7 @@ async def run_experiment_task(task_data: Dict[str, Any], config: Dict) -> Dict[s
     # Run multi-agent loop
     print("  [2/2] Running multi-agent loop...")
     try:
-        multi = await run_multi_agent_loop(task, config, use_rag=False)
+        multi = await run_multi_agent_loop(task, config, use_rag=use_rag, is_code=is_code)
         multi["status"] = "success"
     except Exception as e:
         print(f"  Multi-agent FAILED: {e}")

@@ -162,9 +162,12 @@ class Sutra(BaseAgent):
         yantra_output: str,
         original_task: str,
         rag_chunks: Optional[List[str]] = None,
-        previous_score: Optional[float] = None
+        previous_score: Optional[float] = None,
+        exec_result: Optional[Dict[str, Any]] = None
     ) -> SutraOutput:
         """Analyze output and find issues with structured scoring."""
+
+        from utils.code_executor import format_for_prompt
 
         user_prompt_parts = [
             f"Original Task: {original_task}",
@@ -178,6 +181,15 @@ class Sutra(BaseAgent):
             user_prompt_parts.append(
                 "\nCheck if all claims in the output are supported by the document context. "
                 "Flag any hallucinations or unsupported statements."
+            )
+
+        if exec_result is not None:
+            user_prompt_parts.append("\n--- Execution Validation ---")
+            user_prompt_parts.append(format_for_prompt(exec_result))
+            user_prompt_parts.append(
+                "\nIf execution FAILED, the error above is the single most important issue to "
+                "flag and must be fixed first. If it PASSED, verify correctness beyond just "
+                "running without error."
             )
 
         user_prompt_parts.append(
