@@ -108,7 +108,7 @@ cd Chakra/backend
 python test_agents_comprehensive.py
 
 # Test frontend-backend connection
-cd /Users/arjunpanse/Desktop/chakra_full
+cd Chakra_final
 python test_frontend_backend_connection.py
 ```
 

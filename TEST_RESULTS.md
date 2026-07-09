@@ -95,7 +95,7 @@ python test_agents_comprehensive.py
 
 ### Frontend-Backend Connection Tests
 ```bash
-cd /Users/arjunpanse/Desktop/chakra_full
+cd Chakra_final
 python test_frontend_backend_connection.py
 ```
 

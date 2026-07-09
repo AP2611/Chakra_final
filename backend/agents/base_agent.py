@@ -1,6 +1,7 @@
 """Base agent class for all agents in the system."""
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
+import asyncio
 import httpx
 import json
 
@@ -76,18 +77,25 @@ class BaseAgent(ABC):
             "options": options
         }
         
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(self.api_url, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                # Account for tokens (Ollama returns these on non-streaming calls)
-                self.token_stats["prompt_tokens"] += result.get("prompt_eval_count", 0) or 0
-                self.token_stats["completion_tokens"] += result.get("eval_count", 0) or 0
-                self.token_stats["total"] += (result.get("prompt_eval_count", 0) or 0) + (result.get("eval_count", 0) or 0)
-                return result.get("message", {}).get("content", "").strip()
-        except Exception as e:
-            raise Exception(f"Error calling Ollama API: {str(e)}")
+        last_err = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(self.api_url, json=payload)
+                    response.raise_for_status()
+                    result = response.json()
+                    # Account for tokens (Ollama returns these on non-streaming calls)
+                    self.token_stats["prompt_tokens"] += result.get("prompt_eval_count", 0) or 0
+                    self.token_stats["completion_tokens"] += result.get("eval_count", 0) or 0
+                    self.token_stats["total"] += (result.get("prompt_eval_count", 0) or 0) + (result.get("eval_count", 0) or 0)
+                    return result.get("message", {}).get("content", "").strip()
+            except Exception as e:
+                last_err = e
+                # Brief backoff before retrying transient failures.
+                if attempt < 2:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                continue
+        raise Exception(f"Error calling Ollama API after 3 attempts: {str(last_err)}")
     
     async def _call_ollama_stream(
         self, 

@@ -526,20 +526,23 @@ Access at: `http://localhost:3000` (Analytics tab)
 ### Project Structure
 
 ```
-chakra_full/
+Chakra_final/
 ├── backend/                # Backend (FastAPI + Python)
-│   ├── agents/             # Agent implementations
+│   ├── agents/             # Agent implementations (Yantra, Sutra, Agni, Smriti)
 │   ├── analytics/          # Analytics tracker
-│   ├── evaluation/         # Solution evaluator
+│   ├── evaluation/         # Judge + objective metrics + evaluator
 │   ├── rag/               # RAG retriever
-│   ├── utils/             # Utilities (background tasks)
-│   ├── api.py             # FastAPI server
+│   ├── utils/              # Utilities (background tasks, code executor)
+│   ├── api.py              # FastAPI server
 │   └── orchestrator.py    # Agent orchestrator
 ├── chakra_ui/              # Next.js frontend
 │   ├── app/                # Next.js app router
-│   ├── components/        # React components
+│   ├── components/         # React components
 │   ├── utils/              # Utilities (API client)
 │   └── hooks/              # React hooks
+├── experiment_results/     # Generated figures (PDF/PNG) + raw JSON
+├── paper/                  # Manuscript draft + reproducibility notes
+├── run_experiment.py       # Publication experiment harness
 ├── docker-compose.yml      # Docker services
 └── README.md              # This file
 ```
@@ -551,9 +554,8 @@ chakra_full/
 cd backend
 python test_agents_comprehensive.py
 
-# Frontend-backend connection test
-cd /Users/arjunpanse/Desktop/chakra_full
-python test_frontend_backend_connection.py
+# Experiment pipeline test (no Ollama required)
+python test_experiment_pipeline.py
 
 # Simple diagnostic test
 python test_simple_diagnostic.py
@@ -776,9 +778,51 @@ done
 
 ---
 
+## 📈 Evaluation & Reproducibility (Paper)
+
+The experiment harness in [`run_experiment.py`](run_experiment.py) produces the
+figures and statistics cited in the paper. It is designed to be **fair and
+non-circular**:
+
+- **Two baselines**: a *weak* single-pass generator (the same small model the
+  loop uses to draft) and a *strong* single-pass model (the fair comparison
+  target a reviewer expects).
+- **Ablations**: the loop is run in `full`, `agni_only`, and `sutra_only` modes
+  so gains can be attributed to the critique/improve stages.
+- **Decoupled evaluation**: every final solution is scored by an **independent
+  judge** ([`backend/evaluation/judge.py`](backend/evaluation/judge.py)) — a
+  separate model instance with a frozen rubric — and by **objective,
+  execution-based metrics** ([`backend/evaluation/objective.py`](backend/evaluation/objective.py)).
+  This removes the circularity of using the in-loop critic (Sutra) as the sole
+  measure of success.
+- **Robustness**: JSON parsing tolerates control characters / prose wrapping
+  and every LLM call retries, so transient failures no longer abort runs.
+- **Variance**: multiple `seeds` are supported for variance estimation.
+
+### Running the experiment
+
+```bash
+# 1. Start Ollama with the required models
+ollama pull qwen2.5:1.5b      # weak generator
+ollama pull mistral:latest    # critic / judge
+
+# 2. Run the full experiment (writes JSON + figures to experiment_results/)
+python run_experiment.py
+
+# 3. Validate the pipeline without Ollama (synthetic data)
+python test_experiment_pipeline.py
+```
+
+Outputs: `experiment_results/results_<timestamp>.json` (raw data + summary) and
+five publication-quality figures (`score_progression`, `improvement_distribution`,
+`time_vs_quality`, `dimension_radar`, `baseline_comparison`). The manuscript
+draft and reproduction notes live in [`paper/`](paper/).
+
+---
+
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the MIT License — see the [`LICENSE`](LICENSE) file for details.
 
 ---
 

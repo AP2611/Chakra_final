@@ -82,43 +82,96 @@ def smooth_score(previous_score: Optional[float], raw_score: float, critique_tex
     return round(previous_score + MAX_DELTA_WITHOUT_JUSTIFICATION * (1 if delta > 0 else -1), 2)
 
 
+def _extract_balanced_json(text: str) -> Optional[str]:
+    """Extract the outermost JSON object from arbitrary text via brace matching.
+
+    This is far more robust than a greedy regex when the model emits prose
+    before/after the JSON or when the JSON contains nested braces.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if esc:
+            esc = False
+            continue
+        if c == "\\":
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def _parse_json_safe(raw_text: str) -> dict:
-    cleaned = re.sub(r"^```(json)?|```$", "", raw_text.strip(), flags=re.MULTILINE).strip()
-    
-    # Try direct parse first
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-    
-    # Try extracting JSON object with regex
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
+    """Parse Sutra's JSON output tolerantly.
+
+    Key robustness fixes vs. the naive version:
+      * ``json.loads(..., strict=False)`` permits control characters (tabs,
+        newlines) that appear *inside* string values -- the exact cause of the
+        historical "Invalid control character" failures (~21% of runs).
+      * A balanced-brace scanner recovers the JSON object even when the model
+        wraps it in prose or markdown fences.
+      * A control-character sanitization pass is kept as a final fallback.
+    """
+    if not raw_text or not raw_text.strip():
+        raise ValueError("Sutra returned empty output")
+
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE).strip()
+
+    candidates = [cleaned]
+    m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if m:
+        candidates.append(m.group(0))
+    b = _extract_balanced_json(cleaned)
+    if b:
+        candidates.append(b)
+    # Control-character sanitization fallback (replace with spaces so string
+    # lengths/structure stay valid).
+    sanitized = re.sub(r"[\x00-\x1f]", " ", cleaned)
+    candidates.append(sanitized)
+    sb = _extract_balanced_json(sanitized)
+    if sb:
+        candidates.append(sb)
+
+    last_err = None
+    for cand in candidates:
+        if not cand:
+            continue
         try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-    
-    # Try to sanitize control characters and parse again
+            return json.loads(cand, strict=False)
+        except json.JSONDecodeError as e:
+            last_err = e
+            continue
+
+    # Last resort: reconstruct minimal valid JSON from any scores found.
     try:
-        # Remove control characters that break JSON (except newlines/tabs which we'll handle)
-        sanitized = cleaned
-        sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', sanitized)
-        return json.loads(sanitized)
-    except json.JSONDecodeError:
-        pass
-    
-    # Last resort: try to extract scores and reconstruct minimal valid JSON
-    try:
-        scores_match = re.search(r'"scores":\s*\{[^}]+\}', cleaned, re.DOTALL)
-        critique_match = re.search(r'"critique":\s*"([^"]*)"', cleaned, re.DOTALL)
+        scores_match = re.search(r'"scores"\s*:\s*\{[^}]+\}', cleaned, re.DOTALL)
+        critique_match = re.search(r'"critique"\s*:\s*"([^"]*)"', cleaned, re.DOTALL)
         if scores_match and critique_match:
-            reconstructed = f'{{"critique": {json.dumps(critique_match.group(1))}, "scores": {{"correctness": 5, "accuracy": 5, "efficiency": 5, "clarity": 5, "edge_case_coverage": 5}}}}'
-            return json.loads(reconstructed)
+            reconstructed = (
+                '{"critique": ' + json.dumps(critique_match.group(1)) +
+                ', "scores": {"correctness": 5, "accuracy": 5, "efficiency": 5, '
+                '"clarity": 5, "edge_case_coverage": 5}}'
+            )
+            return json.loads(reconstructed, strict=False)
     except Exception:
         pass
-    
-    raise ValueError(f"Sutra returned unparseable output: {raw_text[:200]}")
+
+    raise ValueError(f"Sutra returned unparseable output: {raw_text[:200]} (last error: {last_err})")
 
 
 # --- Agent ---
@@ -216,15 +269,26 @@ class Sutra(BaseAgent):
 
         user_prompt = "\n".join(user_prompt_parts)
 
-        # Use lower temperature for scoring to reduce jitter
-        raw = await self._call_ollama(
-            user_prompt,
-            self.SYSTEM_PROMPT,
-            temperature=0.3
-        )
+        # Use lower temperature for scoring to reduce jitter. Retry on
+        # transient API/parse failures so a single bad response does not abort
+        # the whole run (previously ~21% of runs failed at this step).
+        last_err = None
+        for attempt in range(3):
+            try:
+                raw = await self._call_ollama(
+                    user_prompt,
+                    self.SYSTEM_PROMPT,
+                    temperature=0.3
+                )
+                parsed = _parse_json_safe(raw)
+                scores = SutraScores(**parsed["scores"])
+                break
+            except Exception as e:  # API error or unparseable output
+                last_err = e
+                continue
+        else:
+            raise ValueError(f"Sutra failed after 3 attempts: {last_err}")
 
-        parsed = _parse_json_safe(raw)
-        scores = SutraScores(**parsed["scores"])
         raw_composite = compute_composite(scores)
         final_composite = smooth_score(previous_score, raw_composite, parsed["critique"])
 

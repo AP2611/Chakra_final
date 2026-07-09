@@ -119,7 +119,7 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ## File Structure
 
 ```
-chakra_full/
+Chakra_final/
 ├── Chakra/
 │   └── backend/
 │       ├── api.py           # FastAPI server with SSE endpoints

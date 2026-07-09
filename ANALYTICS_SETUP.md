@@ -9,7 +9,7 @@ The analytics system tracks agent performance in real-time, storing data in Redi
 ### 1. Start Docker Services
 
 ```bash
-cd /Users/arjunpanse/Desktop/chakra_full
+cd Chakra_final
 docker-compose up -d
 ```
 
