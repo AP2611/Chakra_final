@@ -20,6 +20,8 @@ class BaseAgent(ABC):
         self.model = model
         self.api_url = f"{ollama_url}/api/chat"
         self.fast_mode = fast_mode
+        # Token accounting (filled by _call_ollama / _call_ollama_stream)
+        self.token_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total": 0}
         
         # Optimized inference parameters for low latency
         if fast_mode:
@@ -43,9 +45,13 @@ class BaseAgent(ABC):
                 "num_ctx": 2048,
             }
     
+    def reset_token_stats(self):
+        """Reset per-run token accounting."""
+        self.token_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total": 0}
+
     async def _call_ollama(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         system: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
@@ -75,6 +81,10 @@ class BaseAgent(ABC):
                 response = await client.post(self.api_url, json=payload)
                 response.raise_for_status()
                 result = response.json()
+                # Account for tokens (Ollama returns these on non-streaming calls)
+                self.token_stats["prompt_tokens"] += result.get("prompt_eval_count", 0) or 0
+                self.token_stats["completion_tokens"] += result.get("eval_count", 0) or 0
+                self.token_stats["total"] += (result.get("prompt_eval_count", 0) or 0) + (result.get("eval_count", 0) or 0)
                 return result.get("message", {}).get("content", "").strip()
         except Exception as e:
             raise Exception(f"Error calling Ollama API: {str(e)}")
@@ -166,6 +176,10 @@ class BaseAgent(ABC):
                                         # This is normal when token limit is reached - not an error
                                         if data.get("done", False):
                                             max_tokens_reached = True
+                                            # Account for tokens (Ollama returns these on the final streaming chunk)
+                                            self.token_stats["prompt_tokens"] += data.get("prompt_eval_count", 0) or 0
+                                            self.token_stats["completion_tokens"] += data.get("eval_count", 0) or 0
+                                            self.token_stats["total"] += (data.get("prompt_eval_count", 0) or 0) + (data.get("eval_count", 0) or 0)
                                             # Yield any remaining content in buffer
                                             if buffer.strip():
                                                 try:

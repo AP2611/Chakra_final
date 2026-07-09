@@ -51,17 +51,21 @@ class Orchestrator:
         context: Optional[str] = None,
         use_rag: bool = False,
         is_code: bool = True,
-        validate_code: bool = True
+        validate_code: bool = True,
+        mode: str = "full"
     ) -> Dict[str, Any]:
         """Process a task through the recursive learning loop (non-streaming).
 
         Delegates to :meth:`process_stream` and returns the final aggregated
         result, so streaming and non-streaming paths share identical logic.
+
+        mode: "full" (Yantra->Sutra->Agni), "agni_only" (Yantra->Agni, Sutra
+        used for measurement only), "sutra_only" (Yantra->Sutra, no Agni).
         """
         final = None
         async for event in self.process_stream(
             task=task, context=context, use_rag=use_rag,
-            is_code=is_code, validate_code=validate_code
+            is_code=is_code, validate_code=validate_code, mode=mode
         ):
             if event.get("type") == "end":
                 final = event
@@ -70,17 +74,10 @@ class Orchestrator:
             return {
                 "task": task, "final_solution": None, "final_score": 0.0,
                 "iterations": [], "total_iterations": 0,
-                "used_rag": use_rag, "rag_chunks": None
+                "used_rag": use_rag, "rag_chunks": None, "mode": mode
             }
-        return {
-            "task": final["task"],
-            "final_solution": final["final_solution"],
-            "final_score": final["final_score"],
-            "iterations": final["iterations"],
-            "total_iterations": final["total_iterations"],
-            "used_rag": final["used_rag"],
-            "rag_chunks": final.get("rag_chunks"),
-        }
+        final["mode"] = mode
+        return final
 
     async def process_stream(
         self,
@@ -88,15 +85,25 @@ class Orchestrator:
         context: Optional[str] = None,
         use_rag: bool = False,
         is_code: bool = True,
-        validate_code: bool = True
+        validate_code: bool = True,
+        mode: str = "full"
     ):
         """Stream the recursive learning loop as SSE-style events.
 
         This is the SINGLE SOURCE OF TRUTH for the agent loop. The REST API
         wraps this generator into Server-Sent Events, so streaming and
         non-streaming paths share identical logic (fixes, recovery, validation).
+
+        mode: "full" (Yantra->Sutra->Agni), "agni_only" (Yantra->Agni with a
+        generic prompt; Sutra still scores for measurement), "sutra_only"
+        (Yantra->Sutra, no Agni; returns the Yantra output).
         """
         from utils.code_executor import extract_code, execute_code
+
+        # Reset per-run token accounting
+        self.yantra.reset_token_stats()
+        self.sutra.reset_token_stats()
+        self.agni.reset_token_stats()
 
         # Parallel RAG + memory retrieval
         rag_task = None
@@ -203,25 +210,36 @@ class Orchestrator:
 
                 yield {"type": "first_response_complete", "iteration": iteration + 1}
 
-                # Step 3: Agni improves (diff-based, execution-aware)
-                yield {"type": "improving_started", "iteration": iteration + 1}
-                agni_result = await self.agni.process(
-                    original_output=current_solution,
-                    critique=sutra_result.critique,
-                    task=task,
-                    rag_chunks=rag_chunks,
-                    exec_result=exec_result
-                )
-                agni_output = agni_result["improved_output"].strip()
-                iteration_data["agni_output"] = agni_output
-                current_solution = agni_output
+                # Step 3: Agni improves (diff-based, execution-aware) — mode-dependent
+                if mode == "sutra_only":
+                    # Critique is computed but never applied; return Yantra output as-is.
+                    iteration_data["agni_output"] = None
+                    current_solution = yantra_output
+                    yield {"type": "improved", "iteration": iteration + 1,
+                           "improved_output": current_solution, "solution": current_solution,
+                           "token_count": 0}
+                else:
+                    yield {"type": "improving_started", "iteration": iteration + 1}
+                    # In agni_only mode, Agni gets a generic prompt (critique not used to steer)
+                    agni_critique = sutra_result.critique if mode == "full" else \
+                        "Please improve this solution for correctness, efficiency, and clarity."
+                    agni_result = await self.agni.process(
+                        original_output=current_solution,
+                        critique=agni_critique,
+                        task=task,
+                        rag_chunks=rag_chunks,
+                        exec_result=exec_result
+                    )
+                    agni_output = agni_result["improved_output"].strip()
+                    iteration_data["agni_output"] = agni_output
+                    current_solution = agni_output
 
-                improved_token_count = len(agni_output.split())
-                yield {"type": "improved_token", "token": agni_output,
-                       "iteration": iteration + 1, "token_count": improved_token_count}
-                yield {"type": "improved", "iteration": iteration + 1,
-                       "improved_output": current_solution, "solution": current_solution,
-                       "token_count": improved_token_count}
+                    improved_token_count = len(agni_output.split())
+                    yield {"type": "improved_token", "token": agni_output,
+                           "iteration": iteration + 1, "token_count": improved_token_count}
+                    yield {"type": "improved", "iteration": iteration + 1,
+                           "improved_output": current_solution, "solution": current_solution,
+                           "token_count": improved_token_count}
 
                 # Step 4: Use Sutra's composite score (1-10 scale)
                 score = sutra_result.composite_score
@@ -236,6 +254,11 @@ class Orchestrator:
                     best_score = score
                     best_solution = current_solution
                 previous_composite = score
+
+                # sutra_only is a single pass (critique computed but not applied)
+                if mode == "sutra_only":
+                    yield {"type": "iteration_complete", "iteration": iteration + 1, "data": iteration_data}
+                    break
 
                 yield {"type": "iteration_complete", "iteration": iteration + 1, "data": iteration_data}
 
@@ -279,6 +302,13 @@ class Orchestrator:
                 }
             )
 
+        # Aggregate token usage across agents for this run
+        total_tokens = (
+            self.yantra.token_stats["total"]
+            + self.sutra.token_stats["total"]
+            + self.agni.token_stats["total"]
+        )
+
         yield {
             "type": "end",
             "task": task,
@@ -287,5 +317,12 @@ class Orchestrator:
             "iterations": iterations,
             "total_iterations": len(iterations),
             "used_rag": use_rag,
-            "rag_chunks": rag_chunks if use_rag else None
+            "rag_chunks": rag_chunks if use_rag else None,
+            "mode": mode,
+            "total_tokens": total_tokens,
+            "token_stats": {
+                "yantra": dict(self.yantra.token_stats),
+                "sutra": dict(self.sutra.token_stats),
+                "agni": dict(self.agni.token_stats),
+            }
         }

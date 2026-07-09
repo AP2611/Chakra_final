@@ -114,27 +114,90 @@ async def run_single_agent_baseline(task: str, config: Dict) -> Dict[str, Any]:
     }
 
 
-async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False, is_code: bool = True) -> Dict[str, Any]:
-    """Run full multi-agent recursive learning loop."""
+# Relative compute cost per model (params in B / 7B reference). Used to compare
+# cost of a weak-model+loop vs a strong single pass. Local models are "free" to
+# call, but the weak model is far cheaper per token, so total cost = factor * tokens.
+MODEL_COST_FACTOR = {
+    "mistral:latest": 1.0,       # ~7B
+    "qwen2.5:1.5b": 1.5 / 7.0,   # ~1.5B
+    "qwen2.5:0.5b": 0.5 / 7.0,
+    "llava:latest": 7.0 / 7.0,
+}
+
+
+def relative_cost(model: str, total_tokens: int) -> float:
+    """Relative compute cost = (model size factor) x tokens."""
+    factor = MODEL_COST_FACTOR.get(model, 1.0)
+    return factor * max(0, total_tokens)
+
+
+async def run_strong_single_pass(task: str, config: Dict) -> Dict[str, Any]:
+    """Strong-model single-pass baseline (the fair comparison target)."""
+    from agents.yantra import Yantra
+    yantra = Yantra(
+        ollama_url=config["ollama_url"],
+        model=config.get("critic_model", config["model"]),
+        fast_mode=config["fast_mode"]
+    )
+    yantra.reset_token_stats()
+
+    start_time = time.time()
+    result = await yantra.process(task=task)
+    elapsed = time.time() - start_time
+
+    return {
+        "task": task,
+        "output": result["output"],
+        "time": elapsed,
+        "agent": "Yantra (strong single-pass)",
+        "model": config.get("critic_model", config["model"]),
+        "total_tokens": yantra.token_stats["total"],
+        "cost": relative_cost(config.get("critic_model", config["model"]), yantra.token_stats["total"]),
+    }
+
+
+async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False, is_code: bool = True, mode: str = "full") -> Dict[str, Any]:
+    """Run the multi-agent recursive learning loop (supports ablation modes)."""
     from orchestrator import Orchestrator
+    from utils.code_executor import extract_code, execute_code
+
+    gen_model = config.get("generator_model", config["model"])
+    crit_model = config.get("critic_model", config["model"])
+
     orchestrator = Orchestrator(
         ollama_url=config["ollama_url"],
         model=config["model"],
-        generator_model=config.get("generator_model", config["model"]),
-        critic_model=config.get("critic_model", config["model"]),
+        generator_model=gen_model,
+        critic_model=crit_model,
         max_iterations=config["max_iterations"],
         min_improvement=config["min_improvement"],
         fast_mode=config["fast_mode"]
     )
-    
+
     start_time = time.time()
     result = await orchestrator.process(
         task=task,
         use_rag=use_rag,
-        is_code=is_code
+        is_code=is_code,
+        mode=mode
     )
     elapsed = time.time() - start_time
-    
+
+    # Per-agent cost: weight each agent's tokens by its model's cost factor
+    ts = result.get("token_stats", {})
+    cost = (
+        relative_cost(gen_model, ts.get("yantra", {}).get("total", 0))
+        + relative_cost(crit_model, ts.get("sutra", {}).get("total", 0))
+        + relative_cost(crit_model, ts.get("agni", {}).get("total", 0))
+    )
+
+    # Execution validation for code tasks (judge validation signal)
+    execution_passed = None
+    if is_code and result.get("final_solution"):
+        code = extract_code(result["final_solution"])
+        if code:
+            execution_passed = execute_code(code)["success"]
+
     return {
         "task": task,
         "final_solution": result["final_solution"],
@@ -143,6 +206,10 @@ async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False, i
         "total_iterations": result["total_iterations"],
         "time": elapsed,
         "agent": "Multi-Agent Loop",
+        "mode": mode,
+        "total_tokens": result.get("total_tokens", 0),
+        "cost": cost,
+        "execution_passed": execution_passed,
     }
 
 
