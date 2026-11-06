@@ -1,4 +1,17 @@
-"""Orchestrator that coordinates all agents in the recursive learning loop."""
+"""Orchestrator that coordinates all agents in the recursive learning loop.
+
+Paper-ready loop semantics (fixed):
+- Iteration 0 produces a fresh Yantra draft. Iteration N>0 *refines* the
+  previous iteration's Agni output (Yantra receives the previous solution +
+  critique) instead of regenerating from scratch.
+- Each full iteration is: candidate generation -> Sutra critique ->
+  Agni improvement -> Sutra re-scoring of the improved output. The
+  iteration ``score`` is the *post-improvement* score, so the stored score
+  and ``final_solution`` are correctly paired (previously the pre-improvement
+  score was paired with the post-improvement text).
+- ``shared_rag_chunks`` lets the experiment harness inject pre-retrieved
+  chunks so baselines and loop see identical context (fairness).
+"""
 from typing import Dict, Any, List, Optional
 import asyncio
 from agents import Yantra, Sutra, Agni, Smriti
@@ -52,20 +65,23 @@ class Orchestrator:
         use_rag: bool = False,
         is_code: bool = True,
         validate_code: bool = True,
-        mode: str = "full"
+        mode: str = "full",
+        shared_rag_chunks: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Process a task through the recursive learning loop (non-streaming).
 
         Delegates to :meth:`process_stream` and returns the final aggregated
         result, so streaming and non-streaming paths share identical logic.
 
-        mode: "full" (Yantra->Sutra->Agni), "agni_only" (Yantra->Agni, Sutra
-        used for measurement only), "sutra_only" (Yantra->Sutra, no Agni).
+        mode: "full" (Yantra->Sutra->Agni, recursively refined), "agni_only"
+        (Yantra->Agni with generic prompt; Sutra used for measurement only),
+        "sutra_only" (Yantra->Sutra, no Agni; single pass).
         """
         final = None
         async for event in self.process_stream(
             task=task, context=context, use_rag=use_rag,
-            is_code=is_code, validate_code=validate_code, mode=mode
+            is_code=is_code, validate_code=validate_code, mode=mode,
+            shared_rag_chunks=shared_rag_chunks,
         ):
             if event.get("type") == "end":
                 final = event
@@ -86,7 +102,8 @@ class Orchestrator:
         use_rag: bool = False,
         is_code: bool = True,
         validate_code: bool = True,
-        mode: str = "full"
+        mode: str = "full",
+        shared_rag_chunks: Optional[List[str]] = None,
     ):
         """Stream the recursive learning loop as SSE-style events.
 
@@ -94,9 +111,10 @@ class Orchestrator:
         wraps this generator into Server-Sent Events, so streaming and
         non-streaming paths share identical logic (fixes, recovery, validation).
 
-        mode: "full" (Yantra->Sutra->Agni), "agni_only" (Yantra->Agni with a
-        generic prompt; Sutra still scores for measurement), "sutra_only"
-        (Yantra->Sutra, no Agni; returns the Yantra output).
+        mode: "full" (Yantra->Sutra->Agni, recursively refined, post-improvement
+        re-scored), "agni_only" (Yantra->Agni with a generic prompt; Sutra
+        still scores pre/post for measurement), "sutra_only"
+        (Yantra->Sutra, no Agni; single pass).
         """
         from utils.code_executor import extract_code, execute_code
 
@@ -105,17 +123,28 @@ class Orchestrator:
         self.sutra.reset_token_stats()
         self.agni.reset_token_stats()
 
-        # Parallel RAG + memory retrieval
-        rag_task = None
-        if use_rag:
+        # Parallel RAG + memory retrieval.
+        # If the harness supplies shared chunks, use them verbatim so every
+        # condition (baselines + loop) is evaluated against identical context.
+        if shared_rag_chunks is not None:
+            rag_chunks = list(shared_rag_chunks) if shared_rag_chunks else None
+            rag_task = None
+        elif use_rag:
             rag_task = asyncio.create_task(
                 asyncio.to_thread(self.rag.retrieve, task, 3)
             )
+        else:
+            rag_task = None
         memory_task = asyncio.create_task(
             asyncio.to_thread(self.smriti.retrieve_similar, task, 3)
         )
 
-        rag_chunks = (await rag_task) if rag_task else None
+        if shared_rag_chunks is not None:
+            pass  # rag_chunks already set
+        elif rag_task is not None:
+            rag_chunks = await rag_task
+        else:
+            rag_chunks = None
         similar_tasks = await memory_task
         past_examples = [ex["solution"] for ex in similar_tasks] if similar_tasks else []
 
@@ -129,7 +158,9 @@ class Orchestrator:
         best_score = 0.0
         best_solution = None
         current_solution = None
-        previous_composite = None
+        previous_improved: Optional[str] = None
+        previous_critique: Optional[str] = None
+        previous_composite: Optional[float] = None  # last *post-improvement* score
 
         for iteration in range(self.max_iterations):
             iteration_data = {
@@ -137,6 +168,11 @@ class Orchestrator:
                 "yantra_output": None,
                 "sutra_critique": None,
                 "sutra_scores": None,
+                "pre_critique": None,
+                "pre_scores": None,
+                "pre_score": None,
+                "post_critique": None,
+                "post_scores": None,
                 "agni_output": None,
                 "score": None,
                 "raw_composite": None,
@@ -148,13 +184,37 @@ class Orchestrator:
             yield {"type": "first_response_started"}
 
             try:
-                # Step 1: Yantra generates solution (streamed tokens)
-                system_prompt = (
-                    "You are Yantra, an expert problem solver. "
-                    "Produce clear, correct, and efficient solutions following best practices. "
-                    "Be precise and thorough in your responses."
-                )
+                # Step 1: Yantra generates candidate.
+                # Iteration 0: fresh draft. Iteration N>0: refine the previous
+                # Agni output using the previous critique (true recursion).
+                is_refine = iteration > 0 and previous_improved is not None
+                if is_refine:
+                    system_prompt = (
+                        "You are Yantra, an expert problem solver. "
+                        "You are refining a previous attempt: preserve everything that "
+                        "is already correct, apply the critique, and fix every "
+                        "identified defect. Produce clear, correct, and efficient "
+                        "solutions following best practices."
+                    )
+                else:
+                    system_prompt = (
+                        "You are Yantra, an expert problem solver. "
+                        "Produce clear, correct, and efficient solutions following best practices. "
+                        "Be precise and thorough in your responses."
+                    )
                 user_prompt_parts = [f"Task: {task}"]
+                if is_refine:
+                    user_prompt_parts.append(
+                        f"\n--- Previous Attempt (prior improved solution) ---\n{previous_improved}"
+                    )
+                    if previous_critique:
+                        user_prompt_parts.append(
+                            f"\n--- Critique to Address ---\n{previous_critique}"
+                        )
+                    user_prompt_parts.append(
+                        "\nRefine this attempt: keep correct parts, fix every "
+                        "issue from the critique. Do not start from scratch."
+                    )
                 if rag_chunks:
                     user_prompt_parts.append("\n--- Relevant Document Context ---")
                     for i, chunk in enumerate(rag_chunks, 1):
@@ -182,49 +242,53 @@ class Orchestrator:
 
                 yantra_output = yantra_output.strip()
                 iteration_data["yantra_output"] = yantra_output
-                current_solution = yantra_output
+                candidate = yantra_output
 
-                # Optional execution validation for code tasks
+                # Optional execution validation for code tasks (on the candidate)
                 exec_result = None
                 if is_code and validate_code:
-                    code = extract_code(current_solution)
+                    code = extract_code(candidate)
                     if code:
                         exec_result = execute_code(code)
                         status = "passed" if exec_result["success"] else "failed"
                         yield {"type": "validation", "iteration": iteration + 1,
                                "status": status, "detail": exec_result.get("error")}
 
-                # Step 2: Sutra critiques with structured scoring
+                # Step 2: Sutra critiques the candidate (steering signal)
                 yield {"type": "sutra_started", "iteration": iteration + 1}
                 sutra_result: SutraOutput = await self.sutra.process(
-                    yantra_output=current_solution,
+                    yantra_output=candidate,
                     original_task=task,
                     rag_chunks=rag_chunks,
                     previous_score=previous_composite,
                     exec_result=exec_result
                 )
-                iteration_data["sutra_critique"] = sutra_result.critique
-                iteration_data["sutra_scores"] = sutra_result.scores.model_dump()
-                iteration_data["raw_composite"] = sutra_result.raw_composite
-                iteration_data["smoothed"] = sutra_result.composite_score != sutra_result.raw_composite
+                iteration_data["pre_critique"] = sutra_result.critique
+                iteration_data["pre_scores"] = sutra_result.scores.model_dump()
+                iteration_data["pre_score"] = sutra_result.composite_score
 
                 yield {"type": "first_response_complete", "iteration": iteration + 1}
 
                 # Step 3: Agni improves (diff-based, execution-aware) — mode-dependent
                 if mode == "sutra_only":
-                    # Critique is computed but never applied; return Yantra output as-is.
+                    # Critique is computed but never applied; return candidate as-is.
                     iteration_data["agni_output"] = None
-                    current_solution = yantra_output
+                    iteration_data["sutra_critique"] = sutra_result.critique
+                    iteration_data["sutra_scores"] = sutra_result.scores.model_dump()
+                    iteration_data["raw_composite"] = sutra_result.raw_composite
+                    iteration_data["smoothed"] = sutra_result.composite_score != sutra_result.raw_composite
+                    current_solution = candidate
                     yield {"type": "improved", "iteration": iteration + 1,
                            "improved_output": current_solution, "solution": current_solution,
                            "token_count": 0}
+                    score = sutra_result.composite_score
                 else:
                     yield {"type": "improving_started", "iteration": iteration + 1}
                     # In agni_only mode, Agni gets a generic prompt (critique not used to steer)
                     agni_critique = sutra_result.critique if mode == "full" else \
                         "Please improve this solution for correctness, efficiency, and clarity."
                     agni_result = await self.agni.process(
-                        original_output=current_solution,
+                        original_output=candidate,
                         critique=agni_critique,
                         task=task,
                         rag_chunks=rag_chunks,
@@ -241,8 +305,38 @@ class Orchestrator:
                            "improved_output": current_solution, "solution": current_solution,
                            "token_count": improved_token_count}
 
-                # Step 4: Use Sutra's composite score (1-10 scale)
-                score = sutra_result.composite_score
+                    # Step 4: Re-score the *improved* output so the iteration
+                    # score correctly pairs with final_solution. Falls back to
+                    # the pre-score if re-scoring fails.
+                    yield {"type": "rescoring_started", "iteration": iteration + 1}
+                    post_exec = None
+                    if is_code and validate_code:
+                        code2 = extract_code(current_solution)
+                        if code2:
+                            post_exec = execute_code(code2)
+                    try:
+                        post_result: SutraOutput = await self.sutra.process(
+                            yantra_output=current_solution,
+                            original_task=task,
+                            rag_chunks=rag_chunks,
+                            previous_score=sutra_result.composite_score,
+                            exec_result=post_exec,
+                        )
+                        iteration_data["post_critique"] = post_result.critique
+                        iteration_data["post_scores"] = post_result.scores.model_dump()
+                        iteration_data["sutra_critique"] = post_result.critique
+                        iteration_data["sutra_scores"] = post_result.scores.model_dump()
+                        iteration_data["raw_composite"] = post_result.raw_composite
+                        iteration_data["smoothed"] = post_result.composite_score != post_result.raw_composite
+                        score = post_result.composite_score
+                    except Exception as rescore_err:
+                        iteration_data["sutra_critique"] = sutra_result.critique
+                        iteration_data["sutra_scores"] = sutra_result.scores.model_dump()
+                        iteration_data["raw_composite"] = sutra_result.raw_composite
+                        iteration_data["smoothed"] = sutra_result.composite_score != sutra_result.raw_composite
+                        iteration_data["post_critique"] = f"[rescore failed: {rescore_err}]"
+                        score = sutra_result.composite_score
+
                 iteration_data["score"] = score
                 iteration_data["improvement"] = (
                     score - previous_composite if previous_composite is not None else 0.0
@@ -253,6 +347,8 @@ class Orchestrator:
                 if score > best_score:
                     best_score = score
                     best_solution = current_solution
+                previous_improved = current_solution
+                previous_critique = iteration_data.get("sutra_critique")
                 previous_composite = score
 
                 # sutra_only is a single pass (critique computed but not applied)
@@ -262,7 +358,7 @@ class Orchestrator:
 
                 yield {"type": "iteration_complete", "iteration": iteration + 1, "data": iteration_data}
 
-                # Stopping conditions
+                # Stopping conditions (on post-improvement scores)
                 if iteration > 0:
                     improvement = score - iterations[-2]["score"]
                     if improvement < -1.0:
@@ -279,7 +375,11 @@ class Orchestrator:
                 if current_solution is not None:
                     iterations.append(iteration_data)
                     score = previous_composite if previous_composite is not None else 5.0
-                    iteration_data["score"] = score
+                    # Only fill a score if the iteration actually produced one.
+                    if iteration_data.get("score") is None:
+                        iteration_data["score"] = score
+                    else:
+                        score = iteration_data["score"]
                     iteration_data["improvement"] = 0.0
                     iteration_data["error"] = str(e)
                     previous_composite = score
@@ -289,7 +389,13 @@ class Orchestrator:
                     yield {"type": "error", "message": str(e)}
                     return
 
-        # Store best solution in memory (threshold adjusted for 1-10 scale)
+        # If best_solution was never set (all scores lost), fall back to the
+        # last current_solution so we still return something scoreable.
+        if best_solution is None and current_solution is not None:
+            best_solution = current_solution
+            best_score = previous_composite if previous_composite is not None else best_score
+
+        # Store best solution in memory (threshold aligned with retrieval >=0.6)
         if best_score > 6.0 and best_solution is not None:
             self.smriti.store(
                 task=task,

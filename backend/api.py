@@ -48,8 +48,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize orchestrator with fast_mode enabled for low latency
-orchestrator = Orchestrator(fast_mode=True)
+# Initialize orchestrator with fast_mode enabled for low latency.
+# Model split is configurable so the live API matches the paper setup:
+# weak generator + stronger critic/judge (see run_experiment.py). Set
+# GENERATOR_MODEL / CRITIC_MODEL / OLLAMA_MODEL env vars to override.
+_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+_GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", _MODEL)
+_CRITIC_MODEL = os.getenv("CRITIC_MODEL", _MODEL)
+orchestrator = Orchestrator(
+    ollama_url=_OLLAMA_URL,
+    model=_MODEL,
+    generator_model=_GENERATOR_MODEL,
+    critic_model=_CRITIC_MODEL,
+    fast_mode=True,
+)
 
 # Initialize analytics tracker
 analytics = AnalyticsTracker()

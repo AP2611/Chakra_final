@@ -48,17 +48,21 @@ sys.path.insert(0, 'backend')
 EXPERIMENT_CONFIG = {
     # A weaker generator creates headroom for the critique/improve loop to
     # demonstrate measurable gains; the critic/judge is a stronger model.
+    # The judge is a *separate instance* with a frozen rubric (temp 0.2) so
+    # steering (Sutra-in-loop) is decoupled from measurement (Judge). Same
+    # model family as the critic remains a limitation — see manuscript
+    # Threats to Validity; swap judge_model for a different family to test it.
     "model": "mistral:latest",            # default / critic fallback
     "generator_model": "qwen2.5:1.5b",    # weak drafter
     "critic_model": "mistral:latest",     # strong critic + improver
-    "judge_model": "mistral:latest",      # independent evaluator
+    "judge_model": "mistral:latest",      # independent evaluator (separate instance)
     "ollama_url": "http://localhost:11434",
     "max_iterations": 3,
     "min_improvement": 0.5,
     "fast_mode": False,                   # normal mode -> better quality
     "output_dir": "experiment_results",
-    "seeds": [42],
-    "use_rag": False,                     # global RAG toggle
+    "seeds": [42, 7, 123],                # >=3 seeds for variance estimation
+    "use_rag": False,                     # global RAG toggle (document_qa always on)
     "resume": True,
     "ablation_modes": ["full", "agni_only", "sutra_only"],
 }
@@ -91,27 +95,35 @@ def relative_cost(model: str, total_tokens: int) -> float:
 
 TASK_CATEGORIES: Dict[str, List[Dict[str, Any]]] = {
     "code_algorithms": [
-        {"task": "Write a Python function to check if a number is prime",
+        {"task": "Write a Python function named is_prime(n) to check if a number is prime",
          "tests": "assert is_prime(2) is True\nassert is_prime(1) is False\nassert is_prime(17) is True\nassert is_prime(9) is False"},
-        {"task": "Write a Python function to reverse a linked list"},
-        {"task": "Write a Python function to find the maximum subarray sum (Kadane's algorithm)"},
-        {"task": "Write a Python function to merge two sorted arrays"},
-        {"task": "Write a Python function to detect a cycle in a linked list"},
-        {"task": "Write a Python function to validate a binary search tree"},
-        {"task": "Write a Python function to perform binary search on a sorted array"},
-        {"task": "Write a Python function to generate all permutations of a string"},
-        {"task": "Write a Python function to implement depth-first search on a graph"},
-        {"task": "Write a Python function to find the longest common subsequence of two strings"},
+        {"task": "Write a Python function named reverse_list(head) to reverse a singly linked list. Nodes have .val and .next attributes; use this Node class: class Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next"},
+        {"task": "Write a Python function named max_subarray(nums) to find the maximum subarray sum (Kadane's algorithm) of a non-empty list of numbers",
+         "tests": "assert max_subarray([-2,1,-3,4,-1,2,1,-5,4]) == 6\nassert max_subarray([-1]) == -1\nassert max_subarray([1,2,3]) == 6"},
+        {"task": "Write a Python function named merge_sorted(a, b) to merge two sorted lists of numbers into one sorted list",
+         "tests": "assert merge_sorted([1,3,5],[2,4,6]) == [1,2,3,4,5,6]\nassert merge_sorted([],[1,2]) == [1,2]"},
+        {"task": "Write a Python function named has_cycle(head) to detect a cycle in a singly linked list. Nodes have .val and .next. Return True if cyclic, else False."},
+        {"task": "Write a Python function named is_valid_bst(root) to validate a binary search tree. Nodes have .val, .left, .right. Return True if valid."},
+        {"task": "Write a Python function named binary_search(arr, target) to perform binary search on a sorted list. Return the index of target or -1 if not found",
+         "tests": "assert binary_search([1,2,3,4,5],3) == 2\nassert binary_search([1,2,3,4,5],6) == -1\nassert binary_search([10],10) == 0"},
+        {"task": "Write a Python function named permutations(s) to generate all permutations of a string as a list",
+         "tests": "assert sorted(permutations('ab')) == ['ab','ba']\nassert len(permutations('abc')) == 6"},
+        {"task": "Write a Python function named dfs(graph, start) to implement depth-first search on a graph. graph is a dict of node -> list of neighbors. Return the DFS order as a list starting from start"},
+        {"task": "Write a Python function named lcs(a, b) to find the length of the longest common subsequence of two strings",
+         "tests": "assert lcs('abcde','ace') == 3\nassert lcs('abc','def') == 0"},
         # Harder tasks -> real headroom for the loop
         {"task": "Write a thread-safe Python function that implements a bounded blocking queue with put() and get()"},
         {"task": "Write a Python function to compute the nth Fibonacci number in O(log n) time using matrix exponentiation"},
         {"task": "Write a Python function to find the median of a stream of integers efficiently (running median)"},
     ],
     "code_optimization": [
-        {"task": "Optimize this Python function for performance: def find_duplicates(arr): return [x for i, x in enumerate(arr) if x in arr[:i]]"},
-        {"task": "Refactor this code to be more readable: x=lambda a,b: a+b if a>b else a-b"},
-        {"task": "Improve the error handling in this function: def divide(a,b): return a/b"},
-        {"task": "Rewrite this O(n^2) duplicate-removal to run in O(n) average time while preserving order"},
+        {"task": "Optimize this Python function for performance. Keep the function name find_duplicates(arr) which returns the list of duplicated values (each duplicate once, order of first appearance): def find_duplicates(arr): return [x for i, x in enumerate(arr) if x in arr[:i]]",
+         "tests": "assert find_duplicates([1,2,2,3,3,3]) == [2,3]\nassert find_duplicates([1,2,3]) == []"},
+        {"task": "Refactor this code to be more readable. Replace the one-line lambda with a named function abs_diff(a, b) that returns the absolute difference: x=lambda a,b: a+b if a>b else a-b",
+         "tests": "assert abs_diff(5,2) == 3\nassert abs_diff(2,5) == 3"},
+        {"task": "Improve the error handling in this function. Keep the name divide(a, b) but raise ValueError (not ZeroDivisionError) when b is zero, and raise TypeError for non-numeric inputs: def divide(a,b): return a/b",
+         "tests": "assert divide(10,2) == 5.0\ntry:\n    divide(1,0)\n    assert False, 'expected ValueError'\nexcept ValueError:\n    pass"},
+        {"task": "Rewrite this O(n^2) duplicate-removal to run in O(n) average time while preserving order. Use function name dedupe(arr) that returns the list with duplicates removed preserving first-occurrence order"},
     ],
     "math_reasoning": [
         {"task": "Solve for x: 3x + 7 = 22"},
@@ -135,7 +147,10 @@ TASK_CATEGORIES: Dict[str, List[Dict[str, Any]]] = {
 }
 
 # Flatten into a task list with metadata. document_qa enables RAG; others
-# follow the global toggle.
+# follow the global toggle. Only true code categories are flagged is_code
+# (math/text answers are prose — running them as code would corrupt the
+# objective execution rate).
+CODE_CATEGORIES = {"code_algorithms", "code_optimization"}
 ALL_TASKS: List[Dict[str, Any]] = []
 for category, tasks in TASK_CATEGORIES.items():
     for t in tasks:
@@ -144,7 +159,7 @@ for category, tasks in TASK_CATEGORIES.items():
             "task": t["task"],
             "category": category,
             "use_rag": use_rag,
-            "is_code": category != "document_qa",
+            "is_code": category in CODE_CATEGORIES,
             "tests": t.get("tests"),
         })
 
@@ -213,6 +228,7 @@ async def run_multi_agent_loop(task: str, config: Dict, use_rag: bool = False,
         use_rag=use_rag,
         is_code=is_code,
         mode=mode,
+        shared_rag_chunks=rag_chunks,
     )
     elapsed = time.time() - start
 
@@ -259,10 +275,11 @@ async def run_independent_judge(task: str, solution: str, config: Dict,
 
 
 def run_objective_eval(solution: str, is_code: bool,
-                       tests: Optional[str] = None) -> Dict[str, Any]:
+                       tests: Optional[str] = None,
+                       rag_chunks: Optional[List[str]] = None) -> Dict[str, Any]:
     """Objective, execution-based evaluation (no LLM)."""
     from evaluation.objective import objective_eval
-    return objective_eval(solution, is_code, tests)
+    return objective_eval(solution, is_code, tests, rag_chunks=rag_chunks)
 
 
 async def evaluate_solution(task: str, solution: str, config: Dict,
@@ -270,7 +287,7 @@ async def evaluate_solution(task: str, solution: str, config: Dict,
                             tests: Optional[str]) -> Dict[str, Any]:
     """Run both the independent judge and the objective metric on a solution."""
     judge = await run_independent_judge(task, solution, config, rag_chunks=rag_chunks, is_code=is_code)
-    objective = run_objective_eval(solution, is_code, tests)
+    objective = run_objective_eval(solution, is_code, tests, rag_chunks=rag_chunks)
     return {"judge": judge, "objective": objective}
 
 
@@ -333,24 +350,40 @@ async def run_experiment_task(task_data: Dict[str, Any], config: Dict,
     }
 
 
+def _is_new_schema(record: Dict) -> bool:
+    """True for records in the current (baselines + ablations) schema."""
+    return "baselines" in record and "multi_agent" in record
+
+
 def load_latest_results(config: Dict) -> List[Dict[str, Any]]:
-    """Load the latest results file for resuming."""
+    """Load the latest results file for resuming.
+
+    Prefers ``latest.json`` (written on every save). Falls back to the
+    newest timestamped file, keeping only new-schema records so legacy
+    runs (old ``baseline`` key, no judge) never contaminate paired stats.
+    """
     output_dir = config["output_dir"]
     if not os.path.exists(output_dir):
         return []
+    candidates = []
+    latest = os.path.join(output_dir, "latest.json")
+    if os.path.exists(latest):
+        candidates.append(latest)
     result_files = [f for f in os.listdir(output_dir)
                     if f.startswith("results_") and f.endswith(".json")]
-    if not result_files:
-        return []
     result_files.sort(reverse=True)
-    latest_file = os.path.join(output_dir, result_files[0])
-    try:
-        with open(latest_file, 'r') as f:
-            data = json.load(f)
-            return data.get("results", [])
-    except Exception as e:
-        print(f"Warning: could not load latest results file: {e}")
-        return []
+    candidates += [os.path.join(output_dir, f) for f in result_files]
+    for path in candidates:
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+                records = [r for r in data.get("results", []) if _is_new_schema(r)]
+                if records:
+                    return records
+        except Exception as e:
+            print(f"Warning: could not load {os.path.basename(path)}: {e}")
+            continue
+    return []
 
 
 async def run_full_experiment(config: Dict) -> List[Dict[str, Any]]:
@@ -361,8 +394,26 @@ async def run_full_experiment(config: Dict) -> List[Dict[str, Any]]:
     if config.get("resume", False):
         existing = load_latest_results(config)
         results = existing
+        # A record counts as complete only if every condition produced a
+        # judgeable solution (score not None). Records from the broken-judge
+        # era (all judge scores None) are re-run, not skipped.
+        def _record_complete(r: Dict) -> bool:
+            if r.get("status") == "fatal_error":
+                return False
+            for entry in list(r.get("baselines", {}).values()):
+                if not isinstance(entry, dict) or entry.get("status") != "success":
+                    return False
+                if _judge_score(entry) is None:
+                    return False
+            for entry in list(r.get("multi_agent", {}).values()):
+                if not isinstance(entry, dict) or entry.get("status") != "success":
+                    return False
+                if _judge_score(entry) is None:
+                    return False
+            return True
+
         completed_keys = {(r["task"], r.get("seed")) for r in existing
-                          if r.get("status") != "fatal_error"}
+                          if _record_complete(r)}
         print(f"Resuming from {len(completed_keys)} completed (task, seed) pairs")
 
     seeds = config.get("seeds", [42])
@@ -403,17 +454,19 @@ async def run_full_experiment(config: Dict) -> List[Dict[str, Any]]:
 # =============================================================================
 
 def save_results(results: List[Dict], config: Dict):
-    """Save results to JSON file."""
+    """Save results to a timestamped JSON file plus ``latest.json`` (resume)."""
     os.makedirs(config["output_dir"], exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = os.path.join(config["output_dir"], f"results_{timestamp}.json")
-
+    payload = {
+        "config": config,
+        "results": results,
+        "summary": compute_summary(results),
+    }
     with open(filename, 'w') as f:
-        json.dump({
-            "config": config,
-            "results": results,
-            "summary": compute_summary(results),
-        }, f, indent=2, default=str)
+        json.dump(payload, f, indent=2, default=str)
+    with open(os.path.join(config["output_dir"], "latest.json"), 'w') as f:
+        json.dump(payload, f, indent=2, default=str)
 
     print(f"  Saved: {filename}")
     return filename
@@ -429,6 +482,26 @@ def _obj_runs(entry: Dict) -> Optional[bool]:
     ev = entry.get("evaluation", {})
     o = ev.get("objective", {})
     return o.get("runs") if isinstance(o, dict) else None
+
+
+def _obj_groundedness(entry: Dict) -> Optional[float]:
+    ev = entry.get("evaluation", {})
+    o = ev.get("objective", {})
+    if not isinstance(o, dict):
+        return None
+    g = o.get("groundedness")
+    return float(g) if isinstance(g, (int, float)) else None
+
+
+def _judge_groundedness(entry: Dict) -> Optional[float]:
+    ev = entry.get("evaluation", {})
+    j = ev.get("judge", {})
+    if not isinstance(j, dict):
+        return None
+    scores = j.get("scores", {})
+    if isinstance(scores, dict) and isinstance(scores.get("groundedness"), (int, float)):
+        return float(scores["groundedness"])
+    return None
 
 
 def compute_summary(results: List[Dict]) -> Dict[str, Any]:
@@ -484,11 +557,22 @@ def compute_summary(results: List[Dict]) -> Dict[str, Any]:
         lst = [x for x in lst if x is not None]
         return float(np.mean([1 if x else 0 for x in lst])) if lst else None
 
-    # Cost
+    # Cost (relative compute + latency)
     weak_times = [w["time"] for _, w, _, _ in pairs]
     strong_times = [s["time"] for _, _, s, _ in pairs]
     multi_times = [m["time"] for _, _, _, m in pairs]
     multi_tokens = [m.get("total_tokens", 0) for _, _, _, m in pairs]
+    weak_costs = [w.get("cost", 0) for _, w, _, _ in pairs]
+    strong_costs = [s.get("cost", 0) for _, _, s, _ in pairs]
+    multi_costs = [m.get("cost", 0) for _, _, _, m in pairs]
+
+    # Hallucination proxies (RAG tasks only; None otherwise)
+    weak_ground = [x for x in (_obj_groundedness(w) for _, w, _, _ in pairs) if x is not None]
+    strong_ground = [x for x in (_obj_groundedness(s) for _, _, s, _ in pairs) if x is not None]
+    multi_ground = [x for x in (_obj_groundedness(m) for _, _, _, m in pairs) if x is not None]
+    weak_jground = [x for x in (_judge_groundedness(w) for _, w, _, _ in pairs) if x is not None]
+    strong_jground = [x for x in (_judge_groundedness(s) for _, _, s, _ in pairs) if x is not None]
+    multi_jground = [x for x in (_judge_groundedness(m) for _, _, _, m in pairs) if x is not None]
 
     # Ablation means (judge)
     ablation_means = {}
@@ -505,6 +589,7 @@ def compute_summary(results: List[Dict]) -> Dict[str, Any]:
 
     summary: Dict[str, Any] = {
         "n_complete": len(pairs),
+        "n_judged": min(len(weak_j), len(strong_j), len(multi_j)) if (weak_j and strong_j and multi_j) else 0,
         "weak_judge_mean": float(np.mean(weak_j)) if weak_j else None,
         "strong_judge_mean": float(np.mean(strong_j)) if strong_j else None,
         "multi_judge_mean": float(np.mean(multi_j)) if multi_j else None,
@@ -520,7 +605,16 @@ def compute_summary(results: List[Dict]) -> Dict[str, Any]:
         "weak_time_mean": float(np.mean(weak_times)) if weak_times else None,
         "strong_time_mean": float(np.mean(strong_times)) if strong_times else None,
         "multi_time_mean": float(np.mean(multi_times)) if multi_times else None,
+        "weak_cost_mean": float(np.mean(weak_costs)) if weak_costs else None,
+        "strong_cost_mean": float(np.mean(strong_costs)) if strong_costs else None,
+        "multi_cost_mean": float(np.mean(multi_costs)) if multi_costs else None,
         "multi_tokens_mean": float(np.mean(multi_tokens)) if multi_tokens else None,
+        "objective_groundedness_weak": float(np.mean(weak_ground)) if weak_ground else None,
+        "objective_groundedness_strong": float(np.mean(strong_ground)) if strong_ground else None,
+        "objective_groundedness_multi": float(np.mean(multi_ground)) if multi_ground else None,
+        "judge_groundedness_weak": float(np.mean(weak_jground)) if weak_jground else None,
+        "judge_groundedness_strong": float(np.mean(strong_jground)) if strong_jground else None,
+        "judge_groundedness_multi": float(np.mean(multi_jground)) if multi_jground else None,
         "ablation_judge_means": ablation_means,
     }
     return summary
@@ -727,17 +821,22 @@ def plot_dimension_radar(results: List[Dict], config: Dict):
     if not valid:
         return
 
-    dimensions = ["correctness", "accuracy", "efficiency", "clarity", "edge_case_coverage"]
+    dimensions = ["correctness", "accuracy", "efficiency", "clarity",
+                  "edge_case_coverage", "groundedness"]
     dim_scores = {dim: [] for dim in dimensions}
     for r in valid:
         p = _primary(r)
         final_iter = p.get("iterations", [{}])[-1] if p.get("iterations") else {}
         scores = final_iter.get("sutra_scores", {})
         for dim in dimensions:
-            if dim in scores:
+            if isinstance(scores.get(dim), (int, float)):
                 dim_scores[dim].append(scores[dim])
-
-    means = [np.mean(dim_scores[dim]) if dim_scores[dim] else 0 for dim in dimensions]
+    # Groundedness only exists on RAG tasks; drop it if no data so the radar
+    # stays on comparable dimensions.
+    dimensions = [d for d in dimensions if dim_scores[d]]
+    if not dimensions:
+        return
+    means = [np.mean(dim_scores[dim]) for dim in dimensions]
 
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
     angles = np.linspace(0, 2 * np.pi, len(dimensions), endpoint=False).tolist()

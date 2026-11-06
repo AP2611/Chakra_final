@@ -99,16 +99,35 @@ class Smriti:
         conn.commit()
         conn.close()
     
+    _STOPWORDS = {
+        "a", "an", "the", "to", "of", "in", "for", "and", "or", "is", "are",
+        "write", "python", "function", "that", "how", "what", "with", "this",
+    }
+
+    @classmethod
+    def _tokenize(cls, text: str) -> set:
+        """Content-word tokenizer consistent with the RAG retriever.
+
+        Strips punctuation and English stopwords so Jaccard measures topical
+        overlap rather than shared function words ("write a python function…").
+        """
+        import re
+        words = re.findall(r"[a-z0-9]+", text.lower())
+        return {w for w in words if w not in cls._STOPWORDS}
+
     def retrieve_similar(
         self,
         task: str,
         limit: int = 3,
-        min_score: float = 0.7
+        min_score: float = 0.6
     ) -> List[Dict[str, Any]]:
-        """Retrieve similar past tasks and their solutions."""
-        # Simple text-based similarity (can be enhanced with embeddings)
-        task_lower = task.lower()
-        task_words = set(task_lower.split())
+        """Retrieve similar past tasks and their solutions.
+
+        ``min_score`` is aligned with the orchestrator storage gate
+        (``score > 6.0/10`` → quality > 0.6) so stored solutions are
+        actually retrievable (previously 0.7 silently dropped 0.6–0.7 items).
+        """
+        task_words = self._tokenize(task)
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -124,16 +143,15 @@ class Smriti:
         results = cursor.fetchall()
         conn.close()
         
-        # Simple similarity scoring
+        # Content-word Jaccard similarity scoring
         similar = []
         for stored_task, solution, score, metadata in results:
-            stored_words = set(stored_task.lower().split())
-            # Jaccard similarity
+            stored_words = self._tokenize(stored_task)
             intersection = len(task_words & stored_words)
             union = len(task_words | stored_words)
             similarity = intersection / union if union > 0 else 0
-            
-            if similarity > 0.2:  # Threshold for similarity
+
+            if similarity >= 0.15:  # Threshold for topical overlap
                 similar.append({
                     "task": stored_task,
                     "solution": solution,

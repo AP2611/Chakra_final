@@ -158,14 +158,31 @@ def _parse_json_safe(raw_text: str) -> dict:
             continue
 
     # Last resort: reconstruct minimal valid JSON from any scores found.
+    # Parse the actual per-dimension integers (clamped to 1-10) instead of
+    # discarding them and defaulting every dimension to 5, which would hide
+    # genuine quality signals and bias the loop toward "no improvement".
     try:
-        scores_match = re.search(r'"scores"\s*:\s*\{[^}]+\}', cleaned, re.DOTALL)
         critique_match = re.search(r'"critique"\s*:\s*"([^"]*)"', cleaned, re.DOTALL)
-        if scores_match and critique_match:
+        if critique_match:
+            scores_block = re.search(r'"scores"\s*:\s*\{([^}]+)\}', cleaned, re.DOTALL)
+            dims = ("correctness", "accuracy", "efficiency", "clarity",
+                    "edge_case_coverage", "groundedness")
+            scores: Dict[str, Any] = {}
+            for dim in dims:
+                m = re.search(rf'"{dim}"\s*:\s*(-?\d+)', scores_block.group(1)) if scores_block else None
+                if m:
+                    try:
+                        val = int(m.group(1))
+                        scores[dim] = max(1, min(10, val))
+                    except ValueError:
+                        scores[dim] = 5
+            # Fill required dimensions (groundedness stays optional/nullable).
+            for dim in dims:
+                if dim != "groundedness" and dim not in scores:
+                    scores[dim] = 5
             reconstructed = (
                 '{"critique": ' + json.dumps(critique_match.group(1)) +
-                ', "scores": {"correctness": 5, "accuracy": 5, "efficiency": 5, '
-                '"clarity": 5, "edge_case_coverage": 5}}'
+                ', "scores": ' + json.dumps(scores) + '}'
             )
             return json.loads(reconstructed, strict=False)
     except Exception:

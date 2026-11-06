@@ -36,11 +36,35 @@ JUDGE_SYSTEM_PROMPT = (
 
 
 class Judge(BaseAgent):
-    """Separate, fixed-rubric evaluator applied identically to all systems."""
+    """Separate, fixed-rubric evaluator applied identically to all systems.
+
+    Implements the ``BaseAgent.process`` abstract method (delegating to
+    :meth:`score`) so the class is instantiable. Historically ``Judge``
+    only defined ``score()``, leaving the abstract ``process`` unimplemented,
+    which raised ``TypeError: Can't instantiate abstract class Judge`` at
+    runtime and aborted every evaluation in ``run_experiment.py``.
+    """
 
     def __init__(self, ollama_url: str = "http://localhost:11434",
                  model: str = "mistral:latest", fast_mode: bool = False):
         super().__init__("Judge", ollama_url, model, fast_mode=fast_mode)
+
+    async def process(
+        self,
+        task: str = "",
+        solution: str = "",
+        rag_chunks: Optional[list] = None,
+        temperature: float = 0.2,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """BaseAgent-compatible entry point; delegates to :meth:`score`."""
+        # Accept both keyword styles used across the codebase.
+        if not task:
+            task = kwargs.get("original_task", "")
+        if not solution:
+            solution = kwargs.get("yantra_output", "")
+        return await self.score(task, solution, rag_chunks=rag_chunks,
+                                temperature=temperature)
 
     async def score(
         self,

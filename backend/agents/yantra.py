@@ -14,19 +14,49 @@ class Yantra(BaseAgent):
         task: str,
         context: Optional[str] = None,
         rag_chunks: Optional[List[str]] = None,
-        past_examples: Optional[List[str]] = None
+        past_examples: Optional[List[str]] = None,
+        previous_solution: Optional[str] = None,
+        previous_critique: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Generate initial solution."""
+        """Generate initial solution (or refine the previous iteration's
+        solution when ``previous_solution`` is supplied).
+
+        Recursion note: the orchestrator passes the best Agni output from the
+        prior iteration as ``previous_solution`` so iteration N+1 builds on
+        iteration N instead of regenerating from scratch.
+        """
         
         # Build system prompt
-        system_prompt = (
-            "You are Yantra, an expert problem solver. "
-            "Produce clear, correct, and efficient solutions following best practices. "
-            "Be precise and thorough in your responses."
-        )
-        
+        if previous_solution:
+            system_prompt = (
+                "You are Yantra, an expert problem solver. "
+                "You are refining a previous attempt: preserve everything that "
+                "is already correct, apply the critique, and fix every "
+                "identified defect. Produce clear, correct, and efficient "
+                "solutions following best practices."
+            )
+        else:
+            system_prompt = (
+                "You are Yantra, an expert problem solver. "
+                "Produce clear, correct, and efficient solutions following best practices. "
+                "Be precise and thorough in your responses."
+            )
+
         # Build user prompt
         user_prompt_parts = [f"Task: {task}"]
+
+        if previous_solution:
+            user_prompt_parts.append(
+                f"\n--- Previous Attempt (iteration solution) ---\n{previous_solution}"
+            )
+            if previous_critique:
+                user_prompt_parts.append(
+                    f"\n--- Critique to Address ---\n{previous_critique}"
+                )
+            user_prompt_parts.append(
+                "\nRefine this attempt: keep correct parts, fix every "
+                "issue from the critique. Do not start from scratch."
+            )
         
         if rag_chunks:
             user_prompt_parts.append("\n--- Relevant Document Context ---")
