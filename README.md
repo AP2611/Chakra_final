@@ -797,7 +797,19 @@ non-circular**:
   measure of success.
 - **Robustness**: JSON parsing tolerates control characters / prose wrapping
   and every LLM call retries, so transient failures no longer abort runs.
+  Sutra falls back to neutral scores instead of losing a whole record.
 - **Variance**: multiple `seeds` are supported for variance estimation.
+  LLM calls are seeded via Ollama's `seed` option per (task, seed, agent,
+  iteration); judge uses fixed seed + temperature 0.2. Versions are logged
+  in `latest.json`.
+- **Memory fairness**: Smriti is **disabled** for paper runs
+  (`memory_policy="disabled"`), so baselines and loop see identical empty
+  memory; the pre-run backs up and clears `backend/data/memory.db` and
+  archives legacy old-schema results so they cannot be mistaken for paper
+  numbers.
+- **Objective strength**: all 17 code tasks have reference tests with
+  partial-credit prefix scoring (stateful tests keep working; near-misses
+  get fractional credit).
 
 ### Running the experiment
 
@@ -806,10 +818,14 @@ non-circular**:
 ollama pull qwen2.5:1.5b      # weak generator
 ollama pull mistral:latest    # critic / judge
 
-# 2. Run the full experiment (writes JSON + figures to experiment_results/)
+# 2. Quick smoke test first (3 tasks x 1 seed, separate output dir)
+python run_experiment.py --pilot
+# or: python run_experiment.py --pilot --task-substring is_prime
+
+# 3. Full paper run (30 tasks x 3 seeds, hours; resume-safe)
 python run_experiment.py
 
-# 3. Validate the pipeline without Ollama (synthetic data)
+# 4. Validate the pipeline without Ollama (synthetic data)
 python test_experiment_pipeline.py
 ```
 

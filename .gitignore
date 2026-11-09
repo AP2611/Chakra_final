@@ -66,6 +66,12 @@ logs/
 *.sqlite
 *.sqlite3
 backend/data/memory.db
+backend/data/memory_backup_*.db
+
+# Legacy paper artifacts (old-schema results, archived locally)
+experiment_results/archive_legacy_*/
+experiment_results_pilot/
+backend/data/memory_backup_*.db
 
 # Docker
 docker-compose.override.yml

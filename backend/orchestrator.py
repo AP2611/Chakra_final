@@ -11,6 +11,20 @@ Paper-ready loop semantics (fixed):
   score was paired with the post-improvement text).
 - ``shared_rag_chunks`` lets the experiment harness inject pre-retrieved
   chunks so baselines and loop see identical context (fairness).
+
+Memory / reproducibility policy (paper-ready):
+- ``memory_policy="disabled"`` (experiment default): Smriti is neither
+  retrieved nor written, so every condition sees identical (empty) memory
+  and seeds cannot contaminate each other. Baselines never use Smriti, so
+  the baseline-vs-loop comparison is not confounded by memory leakage.
+- ``memory_policy="frozen"``: retrieve from an existing snapshot but never
+  write (demonstrates retrieval without online learning).
+- ``memory_policy="enabled"``: full online learning (retrieve + store);
+  for interactive use, not for paper numbers.
+The experiment harness additionally backs up and clears ``memory.db``
+before a final run (see ``run_experiment.backup_and_clear_memory``).
+LLM seeds are propagated via :meth:`set_seed` (Ollama ``seed`` option) so
+``EXPERIMENT_CONFIG["seeds"]`` controls sampling, not just task order.
 """
 from typing import Dict, Any, List, Optional
 import asyncio
@@ -29,7 +43,9 @@ class Orchestrator:
         critic_model: Optional[str] = None,
         max_iterations: int = 3,
         min_improvement: float = 0.5,
-        fast_mode: bool = True
+        fast_mode: bool = True,
+        memory_policy: str = "enabled",
+        seed: Optional[int] = None,
     ):
         # Allow splitting models: a weaker generator (Yantra) creates headroom
         # for the critique/improve loop to demonstrate measurable gains.
@@ -40,11 +56,43 @@ class Orchestrator:
         self.yantra = Yantra(ollama_url, self.generator_model, fast_mode=fast_mode)
         self.sutra = Sutra(ollama_url, self.critic_model, fast_mode=fast_mode)
         self.agni = Agni(ollama_url, self.critic_model, fast_mode=fast_mode)
+        if memory_policy not in ("enabled", "frozen", "disabled"):
+            raise ValueError(f"unknown memory_policy {memory_policy!r}")
+        self.memory_policy = memory_policy
         self.smriti = Smriti()
         self._rag = None
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
         self.fast_mode = fast_mode
+        self.base_seed = seed
+        self.set_seed(seed)
+
+    @property
+    def memory_enabled(self) -> bool:
+        """True unless memory retrieval/storage is disabled (fairness)."""
+        return self.memory_policy != "disabled"
+
+    @property
+    def memory_writable(self) -> bool:
+        """True only for online learning (``enabled``)."""
+        return self.memory_policy == "enabled"
+
+    def set_seed(self, seed: Optional[int]):
+        """Propagate a base seed to every agent (Ollama ``seed`` option).
+
+        Each agent gets a distinct offset so sampling patterns differ per
+        role while remaining deterministic for a given base seed.
+        Iteration-level variation is handled in :meth:`process_stream`
+        by re-seeding Yantra with ``base + iteration``.
+        """
+        self.base_seed = seed
+        if seed is None:
+            for agent in (self.yantra, self.sutra, self.agni):
+                agent.set_seed(None)
+            return
+        self.yantra.set_seed(seed)
+        self.sutra.set_seed(seed + 1)
+        self.agni.set_seed(seed + 2)
 
     @property
     def rag(self):
@@ -135,9 +183,11 @@ class Orchestrator:
             )
         else:
             rag_task = None
-        memory_task = asyncio.create_task(
-            asyncio.to_thread(self.smriti.retrieve_similar, task, 3)
-        )
+        memory_task = None
+        if self.memory_enabled:
+            memory_task = asyncio.create_task(
+                asyncio.to_thread(self.smriti.retrieve_similar, task, 3)
+            )
 
         if shared_rag_chunks is not None:
             pass  # rag_chunks already set
@@ -145,8 +195,17 @@ class Orchestrator:
             rag_chunks = await rag_task
         else:
             rag_chunks = None
-        similar_tasks = await memory_task
-        past_examples = [ex["solution"] for ex in similar_tasks] if similar_tasks else []
+        similar_tasks = []
+        past_examples = []
+        if self.memory_enabled:
+            similar_tasks = await memory_task
+            past_examples = [ex["solution"] for ex in similar_tasks] if similar_tasks else []
+        elif memory_task is not None:
+            # Drain retrieval result without using it (disabled policy).
+            try:
+                await memory_task
+            except Exception:
+                pass
 
         yield {"type": "start", "message": "Starting task processing..."}
         if use_rag and rag_chunks:
@@ -184,6 +243,12 @@ class Orchestrator:
             yield {"type": "first_response_started"}
 
             try:
+                # Deterministic per-iteration seed variation for reproducibility.
+                if self.base_seed is not None:
+                    self.yantra.set_seed(self.base_seed + iteration * 10)
+                    self.sutra.set_seed(self.base_seed + iteration * 10 + 1)
+                    self.agni.set_seed(self.base_seed + iteration * 10 + 2)
+
                 # Step 1: Yantra generates candidate.
                 # Iteration 0: fresh draft. Iteration N>0: refine the previous
                 # Agni output using the previous critique (true recursion).
@@ -372,6 +437,12 @@ class Orchestrator:
 
             except Exception as e:
                 yield {"type": "iteration_error", "iteration": iteration + 1, "message": str(e)}
+                # Recover: if this iteration produced a Yantra candidate
+                # (even before Agni ran), keep it as the current solution so
+                # the run still returns a scoreable artifact instead of
+                # losing the whole record.
+                if current_solution is None and iteration_data.get("yantra_output"):
+                    current_solution = iteration_data["yantra_output"]
                 if current_solution is not None:
                     iterations.append(iteration_data)
                     score = previous_composite if previous_composite is not None else 5.0
@@ -383,6 +454,9 @@ class Orchestrator:
                     iteration_data["improvement"] = 0.0
                     iteration_data["error"] = str(e)
                     previous_composite = score
+                    if best_solution is None:
+                        best_solution = current_solution
+                        best_score = score
                     yield {"type": "iteration_complete", "iteration": iteration + 1, "data": iteration_data}
                     continue
                 else:
@@ -395,8 +469,8 @@ class Orchestrator:
             best_solution = current_solution
             best_score = previous_composite if previous_composite is not None else best_score
 
-        # Store best solution in memory (threshold aligned with retrieval >=0.6)
-        if best_score > 6.0 and best_solution is not None:
+        # Store best solution in memory — only under online-learning policy.
+        if self.memory_writable and best_score > 6.0 and best_solution is not None:
             self.smriti.store(
                 task=task,
                 solution=best_solution,

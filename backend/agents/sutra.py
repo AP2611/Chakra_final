@@ -31,6 +31,63 @@ CRITICAL_KEYWORDS = ("critical", "breaking", "severe", "unsafe", "data loss")
 
 # --- Pydantic Schemas ---
 
+_SCORE_ALIASES = {
+    "correctness": ("correctness", "correct", "correctness_score"),
+    "accuracy": ("accuracy", "accurate", "factual_accuracy"),
+    "efficiency": ("efficiency", "efficient", "performance", "speed"),
+    "clarity": ("clarity", "clear", "readability"),
+    "edge_case_coverage": (
+        "edge_case_coverage", "edge_cases", "edge_case", "edge_coverage",
+        "missing_edge_cases", "edge_case_handling", "coverage",
+    ),
+    "groundedness": ("groundedness", "grounded", "grounding", "supported"),
+}
+
+
+def _coerce_scores(raw_scores: Dict[str, Any]) -> Dict[str, Any]:
+    """Tolerantly map model-emitted scores to the canonical schema.
+
+    Models sometimes rename ``edge_case_coverage`` → ``edge_cases``, emit
+    floats (``1.0`` for 10/10), or omit a dimension. This maps aliases,
+    scales 0-1 floats to 1-10 when the max is ≤1.5 and all values are
+    floats, clamps to 1-10, and fills missing dims with 5 (neutral) instead
+    of raising a Pydantic ``Field required`` error.
+    """
+    if not isinstance(raw_scores, dict):
+        return {"correctness": 5, "accuracy": 5, "efficiency": 5,
+                "clarity": 5, "edge_case_coverage": 5, "groundedness": None}
+    # Case-insensitive alias lookup
+    lower_map = {str(k).lower(): v for k, v in raw_scores.items()}
+    coerced: Dict[str, Any] = {}
+    for canon, aliases in _SCORE_ALIASES.items():
+        val = None
+        for alias in aliases:
+            if alias in lower_map:
+                val = lower_map[alias]
+                break
+        coerced[canon] = val
+    # Detect 0-1 scale: all present values are floats in [0,1.5]
+    present = [v for v in coerced.values() if isinstance(v, (int, float))]
+    scale_to_10 = bool(present) and all(isinstance(v, float) for v in present) \
+        and max(present) <= 1.5
+    out: Dict[str, Any] = {}
+    for canon, val in coerced.items():
+        if val is None:
+            out[canon] = None if canon == "groundedness" else 5
+            continue
+        try:
+            iv = float(val)
+        except Exception:
+            out[canon] = None if canon == "groundedness" else 5
+            continue
+        if scale_to_10:
+            iv = iv * 10.0
+        out[canon] = max(1, min(10, int(round(iv))))
+    for dim in ("correctness", "accuracy", "efficiency", "clarity", "edge_case_coverage"):
+        if out.get(dim) is None:
+            out[dim] = 5
+    return out
+
 class SutraScores(BaseModel):
     correctness: int
     accuracy: int
@@ -271,7 +328,9 @@ class Sutra(BaseAgent):
             "4. Unclear logic\n"
             "5. Missing edge cases\n"
             "6. Unsupported claims (if RAG context provided)\n\n"
-            "Provide a bullet list of problems and suggested fixes."
+            "Put your qualitative analysis (a bullet list is fine inside the "
+            "string) in the JSON \"critique\" field. Respond with the JSON "
+            "object only — no prose outside the JSON."
         )
 
         # Calibration block
@@ -289,7 +348,13 @@ class Sutra(BaseAgent):
         # Use lower temperature for scoring to reduce jitter. Retry on
         # transient API/parse failures so a single bad response does not abort
         # the whole run (previously ~21% of runs failed at this step).
+        # Paper-ready: after retries, NEVER raise — return a conservative
+        # fallback (neutral 5s) so one malformed JSON cannot lose an entire
+        # task record. The fallback still carries the raw text as critique.
         last_err = None
+        parsed = None
+        scores = None
+        raw_last = ""
         for attempt in range(3):
             try:
                 raw = await self._call_ollama(
@@ -297,20 +362,38 @@ class Sutra(BaseAgent):
                     self.SYSTEM_PROMPT,
                     temperature=0.3
                 )
+                raw_last = raw
                 parsed = _parse_json_safe(raw)
-                scores = SutraScores(**parsed["scores"])
+                # Tolerate renamed/missing/float dims instead of failing
+                # validation and burning 2 more 12s retries.
+                coerced = _coerce_scores(parsed.get("scores", {}))
+                scores = SutraScores(**coerced)
+                parsed["scores"] = scores.model_dump()
+                parsed.setdefault("critique", raw[:2000])
                 break
             except Exception as e:  # API error or unparseable output
                 last_err = e
                 continue
-        else:
-            raise ValueError(f"Sutra failed after 3 attempts: {last_err}")
+        if parsed is None or scores is None:
+            print(f"  [Sutra] parse fallback after 3 attempts ({last_err}); "
+                  f"using neutral scores (5) so the run continues")
+            fallback_critique = (raw_last or "Sutra parse failure; neutral fallback score.").strip()[:2000]
+            scores = SutraScores(correctness=5, accuracy=5, efficiency=5,
+                                 clarity=5, edge_case_coverage=5)
+            parsed = {"critique": fallback_critique, "scores": scores.model_dump()}
 
         raw_composite = compute_composite(scores)
-        final_composite = smooth_score(previous_score, raw_composite, parsed["critique"])
+        # Models sometimes return critique as a list of bullets; coerce to str.
+        _critique = parsed["critique"]
+        if isinstance(_critique, list):
+            _critique = "\n".join(str(c) for c in _critique)
+        elif not isinstance(_critique, str):
+            _critique = str(_critique)
+        parsed["critique"] = _critique
+        final_composite = smooth_score(previous_score, raw_composite, _critique)
 
         return SutraOutput(
-            critique=parsed["critique"],
+            critique=_critique,
             scores=scores,
             composite_score=final_composite,
             raw_composite=raw_composite,

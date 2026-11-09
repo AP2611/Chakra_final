@@ -11,7 +11,7 @@ import json
 from typing import Dict, Any, Optional
 
 from agents.base_agent import BaseAgent
-from agents.sutra import _parse_json_safe, compute_composite, SutraScores
+from agents.sutra import _parse_json_safe, compute_composite, SutraScores, _coerce_scores
 
 
 JUDGE_SYSTEM_PROMPT = (
@@ -46,8 +46,11 @@ class Judge(BaseAgent):
     """
 
     def __init__(self, ollama_url: str = "http://localhost:11434",
-                 model: str = "mistral:latest", fast_mode: bool = False):
+                 model: str = "mistral:latest", fast_mode: bool = False,
+                 seed: Optional[int] = None):
         super().__init__("Judge", ollama_url, model, fast_mode=fast_mode)
+        if seed is not None:
+            self.set_seed(seed)
 
     async def process(
         self,
@@ -95,13 +98,18 @@ class Judge(BaseAgent):
                     user_prompt, JUDGE_SYSTEM_PROMPT, temperature=temperature
                 )
                 parsed = _parse_json_safe(raw)
-                scores = SutraScores(**parsed["scores"])
+                scores = SutraScores(**_coerce_scores(parsed.get("scores", {})))
                 composite = compute_composite(scores)
+                _crit = parsed.get("critique", "")
+                if isinstance(_crit, list):
+                    _crit = "\n".join(str(c) for c in _crit)
+                elif not isinstance(_crit, str):
+                    _crit = str(_crit)
                 return {
                     "score": composite,
                     "raw_composite": composite,
                     "scores": scores.model_dump(),
-                    "critique": parsed.get("critique", ""),
+                    "critique": _crit,
                     "ok": True,
                 }
             except Exception as e:  # transient API / parse failure

@@ -50,6 +50,20 @@ class BaseAgent(ABC):
         """Reset per-run token accounting."""
         self.token_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total": 0}
 
+    def set_seed(self, seed: Optional[int]):
+        """Set Ollama sampling seed for reproducibility.
+
+        Ollama honours the ``seed`` option. Setting it makes each LLM call
+        reproducible for a given (task, seed, agent) tuple. ``None`` removes
+        the seed. The experiment harness calls this before each task so
+        seeds in ``EXPERIMENT_CONFIG["seeds"]`` control LLM variance, not
+        just task-order shuffling.
+        """
+        if seed is None:
+            self.inference_options.pop("seed", None)
+        else:
+            self.inference_options["seed"] = int(seed)
+
     async def _call_ollama(
         self,
         prompt: str,

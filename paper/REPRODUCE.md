@@ -14,38 +14,66 @@ pip install -r requirements.txt
 pip install numpy scipy matplotlib
 ```
 
+Pinned to the versions exercised in this repo: `numpy==2.2.6`,
+`scipy==1.15.3`, `matplotlib==3.10.0` (see `backend/requirements.txt`).
+Every `latest.json` logs the versions actually used, so a future
+environment mismatch is visible in the output itself.
+
 Models are served locally with [Ollama](https://ollama.com):
 
 ```bash
 ollama pull qwen2.5:1.5b     # weak generator (drafter)
-ollama pull mistral:latest   # critic + independent judge
+ollama pull mistral:latest   # critic + independent judge (default)
 ollama serve                 # ensure the daemon is running
 ```
+
+For a different judge family (recommended sensitivity check): `ollama
+pull llava:latest` (LLaMA ~7B) or `ollama pull llama3.2:1b` (LLaMA ~1B)
+and re-run with `--judge-model`. Same-family judge is allowed but the
+harness warns loudly when `judge_model == critic_model`.
 
 ## 2. Run the experiment
 
 From the repository root:
 
 ```bash
+# Quick smoke test first (3 tasks x 1 seed, fast, full-only, pilot dir):
+python run_experiment.py --pilot
+# or print the resolved config without calling Ollama:
+python run_experiment.py --pilot --dry-run
+
+# Full paper run (30 tasks x 3 seeds, normal mode, ~3k calls = hours):
 python run_experiment.py
+
+# Full run with a different judge family (sensitivity check):
+python run_experiment.py --judge-model llava:latest
 ```
 
 What it does (see [`run_experiment.py`](../run_experiment.py)):
 
-1. Connects to Ollama and verifies the required models are present.
-2. For each task × seed it runs:
+1. Archives legacy old-schema results to `experiment_results/archive_legacy_*/`
+   and backs up + clears `backend/data/memory.db` (memory policy is
+   `disabled` for paper runs, so Smriti neither reads nor writes).
+2. Connects to Ollama and verifies the required models are present.
+3. Seeds `np.random`, `PYTHONHASHSEED`, and every LLM call via Ollama's
+   `seed` option (per task/seed/agent/iteration; judge `seed+999`).
+4. For each task × seed it runs:
    - **weak single-pass** baseline (qwen2.5:1.5b, one shot),
    - **strong single-pass** baseline (mistral:latest, one shot),
    - the multi-agent loop in `full`, `agni_only`, `sutra_only` modes.
-3. Scores **every** final solution with the **independent judge**
+5. Scores **every** final solution with the **independent judge**
    ([`backend/evaluation/judge.py`](../backend/evaluation/judge.py)) and the
-   **objective execution metric**
-   ([`backend/evaluation/objective.py`](../backend/evaluation/objective.py)).
-4. Writes `experiment_results/results_<timestamp>.json` (raw data + `summary`)
-   and five publication figures.
+   **objective execution metric** (all 17 code tasks now have reference
+   tests, scored with partial-credit prefix execution).
+6. Writes `experiment_results/results_<timestamp>.json` (raw data + `summary`)
+   plus `latest.json` and five publication figures.
 
-Configuration (models, seeds, iterations, ablation modes) lives in
-`EXPERIMENT_CONFIG` at the top of `run_experiment.py`. To change seeds:
+Configuration (models, seeds, iterations, ablation modes, memory policy)
+lives in `EXPERIMENT_CONFIG` at the top of `run_experiment.py` and can be
+overridden on the CLI (`--seeds`, `--max-tasks`, `--task-substring`,
+`--only-full`, `--ablations`, `--max-iterations`, `--fast`, `--judge-model`,
+`--output-dir`, `--no-resume`, `--no-clear-memory`, `--memory-policy`).
+To change seeds:
 
 ```python
 EXPERIMENT_CONFIG = { ..., "seeds": [42, 7, 123], ... }
@@ -89,6 +117,13 @@ python test_experiment_pipeline.py
 
 - The independent judge is still an LLM; objective execution rates are the
   primary non-circular signal.
-- LLM sampling is not perfectly reproducible; multiple seeds + paired tests
-  account for variance.
-- Absolute numbers depend on the chosen local models.
+- By default the judge shares the critic's model family (`mistral:latest`);
+  run the sensitivity check with `--judge-model llava:latest` (or similar)
+  and report the correlation — do not claim family-level independence
+  without it.
+- Smriti is disabled during paper evaluation (`memory_policy="disabled"`);
+  any memory benefit needs its own online-learning protocol.
+- LLM sampling is seeded via Ollama's `seed` option but is not bit-identical
+  across versions/hardware; multiple seeds + paired tests account for variance.
+- Absolute numbers depend on the chosen local models; versions are logged
+  in `latest.json`.

@@ -1,0 +1,267 @@
+{
+  "config": {
+    "model": "mistral:latest",
+    "generator_model": "qwen2.5:1.5b",
+    "critic_model": "mistral:latest",
+    "judge_model": "mistral:latest",
+    "ollama_url": "http://localhost:11434",
+    "max_iterations": 2,
+    "min_improvement": 0.5,
+    "fast_mode": true,
+    "output_dir": "experiment_results_chunks/P2_BoundedQueue",
+    "seeds": [
+      42
+    ],
+    "use_rag": false,
+    "resume": true,
+    "ablation_modes": [
+      "full"
+    ],
+    "memory_policy": "disabled",
+    "clear_memory_before_run": false,
+    "archive_legacy_results": false,
+    "seed_base": null,
+    "_pilot_tasks": [
+      {
+        "task": "Write a thread-safe Python class named BoundedQueue implemented with threading.Condition. It must have __init__(self, capacity) storing a capacity, put(self, item) that blocks when the queue is full and get(self) that blocks when the queue is empty. FIFO order.",
+        "category": "code_algorithms",
+        "use_rag": false,
+        "is_code": true,
+        "tests": "import threading, time\n_q=BoundedQueue(2)\n_q.put(1)\n_q.put(2)\nassert _q.get()==1\nassert _q.get()==2\n_q2=BoundedQueue(1)\n_q2.put('a')\ndef _bg():\n    time.sleep(0.1)\n    _q2.get()\n_t=threading.Thread(target=_bg)\n_t.start()\n_q2.put('b')\n_t.join(timeout=2)\nassert not _t.is_alive()\nassert _q2.get()=='b'"
+      }
+    ]
+  },
+  "versions": {
+    "python": "3.13.5",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.10.0"
+  },
+  "results": [
+    {
+      "task": "Write a thread-safe Python class named BoundedQueue implemented with threading.Condition. It must have __init__(self, capacity) storing a capacity, put(self, item) that blocks when the queue is full and get(self) that blocks when the queue is empty. FIFO order.",
+      "category": "code_algorithms",
+      "is_code": true,
+      "use_rag": false,
+      "seed": 42,
+      "baselines": {
+        "weak": {
+          "output": "Certainly! Below is an implementation of a thread-safe `BoundedQueue` class in Python using the `threading.Condition`. This class supports putting items into the queue (`put`) and getting them out (`get`). The queue follows a First-In-First-Out (FIFO) order, with blocking when the queue reaches its capacity.\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n    \n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Methods:\n        __init__(self, capacity): Initializes the bounded queue with a given capacity.\n        put(self, item): Adds an item to the queue. Blocks if the queue is full.\n        get(self): Removes and returns an item from the queue. Blocks if the queue is empty.\n    \"\"\"\n\n    def __init__(self, capacity):\n        \"\"\"\n        Initialize the BoundedQueue instance with a given capacity.\n\n        Parameters:\n            capacity (int): The maximum number of items that can be in the queue.\n        \"\"\"\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    def put(self, item):\n        \"\"\"\n        Add an item to the queue. Blocks if the queue is full.\n\n        Parameters:\n            item: The item to be added.\n        \"\"\"\n        with self._condition:\n            while len(self._queue) == self._capacity:\n                self._condition.wait()\n            self._queue.append(item)\n            self._size += 1",
+          "time": 11.577201843261719,
+          "model": "qwen2.5:1.5b",
+          "seed": 42,
+          "total_tokens": 485,
+          "cost": 103.92857142857142,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 9.6,
+              "raw_composite": 9.6,
+              "scores": {
+                "correctness": 10,
+                "accuracy": 10,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 9,
+                "groundedness": null
+              },
+              "critique": "The provided solution implements a thread-safe BoundedQueue class in Python using threading.Condition as requested, and it follows the specified FIFO order with blocking when the queue reaches its capacity or is empty.",
+              "ok": true
+            },
+            "objective": {
+              "runs": false,
+              "tests_run": 4,
+              "tests_passed": 0,
+              "score": 0.0,
+              "stdout": "",
+              "stderr": "",
+              "error": "  File \"/var/folders/3y/ql0h10357gd_f2ky6xnv17hr0000gn/T/tmp_ifznq58.py\", line 1\n    Certainly! Below is an implementation of a thread-safe `BoundedQueue` class in Python using the `threading.Condition`. This class supports putting items into the queue (`put`) and getting them out (`get`). The queue follows a First-In-First-Out (FIFO) order, with blocking when the queue reaches its capacity.\n             ^\nSyntaxError: invalid syntax\n"
+            }
+          }
+        },
+        "strong": {
+          "output": "Here's a Python class named `BoundedQueue` that implements a thread-safe FIFO (First In, First Out) queue using `threading.Condition`. The class ensures the queue capacity and provides `put()` and `get()` methods with proper blocking when the queue is full or empty.\n\n```python\nimport threading\n\nclass BoundedQueue:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.queue = []\n        self.full_condition = threading.Condition(lock=self)\n        self.empty_condition = threading.Condition(lock=self)\n\n    def put(self, item):\n        with self.full_condition:\n            while len(self.queue) == self.capacity:\n                self.full_condition.wait()\n            self.queue.append(item)\n            self.full_condition.notify()\n\n    def get(self):\n        with self.empty_condition:\n            while not self.queue:\n                self.empty_condition.wait()\n            item = self.queue.pop(0)\n            self.empty_condition.notify()\n            return item\n```\n\nIn this implementation, the `put()` method acquires the lock and checks if the queue is full. If it's full, it waits until another thread calls `get()` or removes items from the queue. Once there's room in the queue, it adds the item and notifies the waiting threads using `notify()`.\n\nThe `get()` method acquires the lock and checks if the queue is empty. If it's empty, it waits until another thread calls `put()` or adds items to the",
+          "time": 46.69390082359314,
+          "model": "mistral:latest",
+          "seed": 42,
+          "total_tokens": 489,
+          "cost": 489.0,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 9.05,
+              "raw_composite": 9.05,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 8,
+                "groundedness": null
+              },
+              "critique": "The provided solution effectively implements a thread-safe FIFO BoundedQueue in Python using threading.Condition as requested. The code is clear and well-structured, with appropriate comments for understanding its functionality.",
+              "ok": true
+            },
+            "objective": {
+              "runs": false,
+              "tests_run": 4,
+              "tests_passed": 0,
+              "score": 0.0,
+              "stdout": "",
+              "stderr": "",
+              "error": "Traceback (most recent call last):\n  File \"/var/folders/3y/ql0h10357gd_f2ky6xnv17hr0000gn/T/tmpr_s7bvd7.py\", line 27, in <module>\n    _q=BoundedQueue(2)\n  File \"/var/folders/3y/ql0h10357gd_f2ky6xnv17hr0000gn/T/tmpr_s7bvd7.py\", line 7, in __init__\n    self.full_condition = threading.Condition(lock=self)\n                          ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/opt/anaconda3/lib/python3.13/threading.py\", line 286, in __init__\n    self.acquire = lock.acquire\n                   ^^^^^^^^^^^^\n"
+            }
+          }
+        }
+      },
+      "multi_agent": {
+        "full": {
+          "task": "Write a thread-safe Python class named BoundedQueue implemented with threading.Condition. It must have __init__(self, capacity) storing a capacity, put(self, item) that blocks when the queue is full and get(self) that blocks when the queue is empty. FIFO order.",
+          "final_solution": "Based on the critique, there were no identified bugs or errors in the original code. However, to address the missing edge cases and potential overflow issue mentioned, I've made some minor modifications to the `put` method as follows:\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n\n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Methods:\n        __init__(self, capacity): Initializes the bounded queue with a given capacity.\n        put(self, item): Add an item to the queue. Blocks if the queue is full.\n        get(self): Remove and return an item from the queue. Blocks if the queue is empty.\n    \"\"\"\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    def put(self, item):\n        \"\"\"\n        Add an item to the queue. Blocks if the queue is full or capacity exceeded.\n\n        Parameters:\n            item: The item to be added.\n        \"\"\"\n        with self._condition:\n            while len(self._queue) == self._capacity and self._size == self._capacity:\n                self._condition.wait",
+          "final_score": 5.0,
+          "iterations": [
+            {
+              "iteration": 1,
+              "yantra_output": "Certainly! Below is an implementation of a thread-safe `BoundedQueue` class in Python using the `threading.Condition`. This class supports putting items into the queue (`put`) and getting them out (`get`). The queue follows a First-In-First-Out (FIFO) order, with blocking when the queue reaches its capacity.\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n    \n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Methods:\n        __init__(self, capacity): Initializes the bounded queue with a given capacity.\n        put(self, item): Adds an item to the queue. Blocks if the queue is full.\n        get(self): Removes and returns an item from the queue. Blocks if the queue is empty.\n    \"\"\"\n\n    def __init__(self, capacity):\n        \"\"\"\n        Initialize the BoundedQueue instance with a given capacity.\n\n        Parameters:\n            capacity (int): The maximum number of items that can be in the queue.\n        \"\"\"\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    def put(self, item):\n        \"\"\"\n        Add an item to the queue. Blocks if the queue is full.\n\n        Parameters:\n            item: The item to be added.\n        \"\"\"\n        with self._condition:\n            while len(self._queue) == self._capacity:\n                self._condition.wait()\n            self._queue.append(item)\n            self._size += 1",
+              "sutra_critique": "The provided code is well-structured and follows good programming practices.\nThere are no apparent bugs or errors in the given code.\nThe logic of the `put` and `get` methods seems clear and efficient.\nThe code includes comments that explain the purpose and functionality of the classes and methods.\nHowever, it is essential to consider edge cases such as what happens when a thread tries to add an item to a full queue while another thread is in the process of removing an item. This could potentially lead to race conditions or deadlocks.",
+              "sutra_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_critique": "1. No bugs or errors found in the provided code.\n2. The code is accurate and follows the given requirements.\n3. The implementation seems efficient for a basic bounded queue.\n4. The logic is clear and easy to understand.\n5. Missing edge cases might be: handling exceptions when adding or removing items, or what happens when capacity is exceeded while trying to add an item (e.g., overflow).\n6. No unsupported claims were made in the provided code.",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "The provided code is well-structured and follows good programming practices.\nThere are no apparent bugs or errors in the given code.\nThe logic of the `put` and `get` methods seems clear and efficient.\nThe code includes comments that explain the purpose and functionality of the classes and methods.\nHowever, it is essential to consider edge cases such as what happens when a thread tries to add an item to a full queue while another thread is in the process of removing an item. This could potentially lead to race conditions or deadlocks.",
+              "post_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "agni_output": "Based on the critique, there were no identified bugs or errors in the original code. However, to address the missing edge cases and potential overflow issue mentioned, I've made some minor modifications to the `put` method as follows:\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n\n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Methods:\n        __init__(self, capacity): Initializes the bounded queue with a given capacity.\n        put(self, item): Add an item to the queue. Blocks if the queue is full.\n        get(self): Remove and return an item from the queue. Blocks if the queue is empty.\n    \"\"\"\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    def put(self, item):\n        \"\"\"\n        Add an item to the queue. Blocks if the queue is full or capacity exceeded.\n\n        Parameters:\n            item: The item to be added.\n        \"\"\"\n        with self._condition:\n            while len(self._queue) == self._capacity and self._size == self._capacity:\n                self._condition.wait",
+              "score": 5.0,
+              "raw_composite": 5.0,
+              "smoothed": false,
+              "improvement": 0.0
+            },
+            {
+              "iteration": 2,
+              "yantra_output": "Your previous code already has good practices and functionality for managing a bounded queue with threading. The edge cases you mentioned are indeed important considerations when designing concurrent systems.\n\nTo address these issues, let's refine your `put` method to ensure that it properly handles both the full queue condition and any potential overflow checks. Here is the revised version:\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n\n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Methods:\n        __init__(self, capacity): Initializes the bounded queue with a given capacity.\n        put(self, item): Add an item to the queue. Blocks if the queue is full or capacity exceeded.\n        get(self): Remove and return an item from the queue. Blocks if the queue is empty.\n    \"\"\"\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    def put(self, item):\n        \"\"\"\n        Add an item to the queue. Blocks if the queue is full or capacity exceeded.\n\n        Parameters:\n            item: The item to be added.\n        \"\"\"\n        with self._condition:\n            while len(self._queue) == self._capacity and self._size >= self._capacity:\n                # Check for overflow\n                if self._size > 0:\n                    raise OverflowError(\"Queue is full\")\n                self._condition.wait()\n\n            self._queue.append(item)\n            self._size += 1",
+              "sutra_critique": "The code appears correct and follows best practices for a thread-safe bounded queue implementation.\nIt handles the case of initializing with a capacity of 0 gracefully, although it may not be desirable in some situations.\nNo bugs or errors were found.\nThe logic is clear and easy to understand.\nMissing edge cases are not apparent in this implementation.\nUnsupported claims are not present as there are no unsubstantiated statements.",
+              "sutra_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_critique": "1. Bugs or errors: None identified.\n2. Inaccuracies: The code does not contain any inaccurate information.\n3. Inefficiencies: The implementation of a bounded queue using a lock and condition object is an efficient approach for multi-threaded programming.\n4. Unclear logic: The logic is clear and easy to understand.\n5. Missing edge cases: It appears that the code handles most common edge cases such as empty and full queues, but it does not handle the case where the capacity is zero.\n6. Unsupported claims (if RAG context provided): N/A",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "The code appears correct and follows best practices for a thread-safe bounded queue implementation.\nIt handles the case of initializing with a capacity of 0 gracefully, although it may not be desirable in some situations.\nNo bugs or errors were found.\nThe logic is clear and easy to understand.\nMissing edge cases are not apparent in this implementation.\nUnsupported claims are not present as there are no unsubstantiated statements.",
+              "post_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "agni_output": "Based on your critique, I have made only one minor adjustment to handle the case where the capacity is zero. This ensures that the queue does not raise an error when initialized with a capacity of 0. Here's the updated `BoundedQueue` class:\n\n```python\nimport threading\n\nclass BoundedQueue:\n    \"\"\"\n    A thread-safe bounded queue implementation using threading.Condition.\n\n    Attributes:\n        _capacity: The maximum number of items that can be in the queue.\n        _queue: A list to hold the items in the queue.\n        _lock: A threading.Lock for synchronization.\n        _condition: A threading.Condition object for wait/notify functionality.\n        _size: The current size of the queue.\n\n    Note: If capacity is 0, the queue will not raise an error when initialized but will behave as if it has infinite capacity.\n    \"\"\"\n    def __init__(self, capacity=1):\n        self._capacity = capacity\n        self._queue = []\n        self._lock = threading.Lock()\n        self._condition = threading.Condition(self._lock)\n        self._size = 0\n\n    # ... (rest of the code remains the same as before)\n```\n\nThis change allows you to initialize a `BoundedQueue` with a capacity of 0 if needed, without raising an error. However, it's important to note that in such cases, the queue will behave as if it has infinite capacity, which may not be desirable in some situations.",
+              "score": 5.0,
+              "raw_composite": 5.0,
+              "smoothed": false,
+              "improvement": 0.0
+            }
+          ],
+          "total_iterations": 2,
+          "time": 191.32076001167297,
+          "agent": "Multi-Agent Loop",
+          "mode": "full",
+          "total_tokens": 6984,
+          "cost": 5843.928571428572,
+          "execution_passed": null,
+          "status": "success",
+          "error": null,
+          "evaluation": {
+            "judge": {
+              "score": 9.15,
+              "raw_composite": 9.15,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 9,
+                "groundedness": null
+              },
+              "critique": "The provided solution is a well-structured, thread-safe implementation of a BoundedQueue using Python's threading module. It addresses the task requirements and follows best practices for synchronization and wait/notify functionality.",
+              "ok": true
+            },
+            "objective": {
+              "runs": false,
+              "tests_run": 4,
+              "tests_passed": 0,
+              "score": 0.0,
+              "stdout": "",
+              "stderr": "",
+              "error": "  File \"/var/folders/3y/ql0h10357gd_f2ky6xnv17hr0000gn/T/tmp867oqv4d.py\", line 1\n    Based on the critique, there were no identified bugs or errors in the original code. However, to address the missing edge cases and potential overflow issue mentioned, I've made some minor modifications to the `put` method as follows:\n                                                                                                                                                                             ^\nSynta"
+            }
+          }
+        }
+      },
+      "timestamp": "2026-11-09T21:20:32.925551"
+    }
+  ],
+  "summary": {
+    "n_complete": 1,
+    "n_judged": 1,
+    "weak_judge_mean": 9.6,
+    "strong_judge_mean": 9.05,
+    "multi_judge_mean": 9.15,
+    "improvement_vs_weak": -0.4499999999999993,
+    "improvement_vs_strong": 0.09999999999999964,
+    "within_loop_improvement_mean": 0.0,
+    "within_loop_improvement_std": 0.0,
+    "objective_exec_rate_weak": 0.0,
+    "objective_exec_rate_strong": 0.0,
+    "objective_exec_rate_multi": 0.0,
+    "weak_time_mean": 11.577201843261719,
+    "strong_time_mean": 46.69390082359314,
+    "multi_time_mean": 191.32076001167297,
+    "weak_cost_mean": 103.92857142857142,
+    "strong_cost_mean": 489.0,
+    "multi_cost_mean": 5843.928571428572,
+    "multi_tokens_mean": 6984.0,
+    "objective_groundedness_weak": null,
+    "objective_groundedness_strong": null,
+    "objective_groundedness_multi": null,
+    "judge_groundedness_weak": null,
+    "judge_groundedness_strong": null,
+    "judge_groundedness_multi": null,
+    "ablation_judge_means": {
+      "full": 9.15
+    }
+  }
+}

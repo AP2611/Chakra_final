@@ -107,9 +107,14 @@ on the synthetic pipeline test).
 - **Agni** (improver): applies *minimal, surgical* fixes from the critique,
   prioritizing execution failures. In `agni_only` ablation it receives a
   generic prompt (critique not used to steer).
-- **Smriti** (memory): stores solutions with post-improvement score $>6.0/10$
-  in SQLite; retrieval uses content-word Jaccard ($\geq 0.15$) with
-  quality $\geq 0.6$ (store/retrieve thresholds aligned).
+- **Smriti** (memory): stored only under ``memory_policy="enabled"`` for
+  interactive use. During paper evaluation Smriti is **disabled** (neither
+  retrieved nor written) so baselines and loop see identical empty memory
+  and seeds cannot leak across tasks. Pre-run the harness backs up and
+  clears ``backend/data/memory.db`` (see REPRODUCE). A ``frozen``
+  read-only mode is also available for demonstrating retrieval without
+  online learning. Retrieval (when enabled) uses content-word Jaccard
+  ($\geq 0.15$) with quality $\geq 0.6$ (store/retrieve thresholds aligned).
 
 The loop runs up to `max_iterations=3`, stopping early when post-improvement
 improvement falls below `min_improvement=0.5` or the score degrades by $>1.0$.
@@ -128,15 +133,27 @@ To avoid LLM-as-judge circularity, the in-loop Sutra score is used only to
   to every system (baselines and loop alike); and
 - **objective metrics** (`backend/evaluation/objective.py`) —
   - code: does the generated code execute, and (where reference `tests`
-    exist) pass them? Primary metric: execution success rate.
+    exist) pass them? Primary metric: execution success rate. **All 17
+    code tasks** now have reference tests (partial-credit prefix scoring:
+    each ``assert``/``try`` block deepens a cumulative prefix run, so
+    stateful tests such as ``RunningMedian``/``BoundedQueue`` still work
+    and near-misses get fractional credit instead of 0/1).
   - RAG text: lexical groundedness = fraction of sentences sharing a content
     word ($\geq$4 chars, non-stopword) with retrieved chunks ("supported
     sentences"). Complement to the judge's groundedness dimension.
 
 Note: the judge currently shares the critic's model family
-(`mistral:latest`). Independence is at instance/prompt/temperature level,
-not family level — a known limitation (see §6); swapping `judge_model`
-for a different family is the direct sensitivity test.
+(`mistral:latest`) unless ``--judge-model`` overrides it (e.g.
+`llava:latest` / `llama3.2:1b`, different LLaMA family, ~7B/1B). The
+harness warns loudly when judge == critic. Independence is at
+instance/prompt/temperature/seed level, not family level — a known
+limitation (see §6); the sensitivity check (rerun judging with a different
+family and report Spearman correlation) is the direct robustness test.
+LLM sampling is seeded via Ollama's ``seed`` option
+(``BaseAgent.set_seed``): per (task, seed) the generator/critic/improver
+receive deterministic offsets ``seed``, ``seed+1``, ``seed+2`` (plus
+``iteration*10``) and the judge ``seed+999`` at temperature 0.2, so
+``seeds=[42,7,123]`` controls sampling, not only task-order shuffling.
 
 ### 3.3 Baselines and ablations
 
@@ -160,27 +177,48 @@ strong single pass, alongside wall-clock latency.
 
 A curated suite of **30 tasks** across five categories: `code_algorithms`
 (13, incl. harder thread-safe bounded queue, O(log n) Fibonacci, running
-median; testable tasks name their function, e.g. `is_prime`, `max_subarray`,
+median — now specified as `BoundedQueue`/`fib`/`RunningMedian` with exact
+APIs; testable tasks name their function, e.g. `is_prime`, `max_subarray`,
 `binary_search`), `code_optimization` (4), `math_reasoning` (5),
-`text_generation` (4), and `document_qa` (4, RAG). Only true code categories
-are executed objectively; math/text are judge-scored (prose is not runnable
-code). Tasks span difficulty so the loop has genuine headroom.
+`text_generation` (4), and `document_qa` (4, RAG). **All 17 code tasks**
+carry reference tests (9 previously had them; reverse-list, cycle, BST,
+DFS, bounded queue, Fibonacci, running median, and dedupe were added in
+the paper-ready fix), scored with partial-credit prefix execution
+(§3.2). Only true code categories are executed objectively; math/text
+are judge-scored (prose is not runnable code). Tasks span difficulty so
+the loop has genuine headroom.
 
 ### 4.2 Protocol
 
 For each task and seed (default `seeds=[42,7,123]`) we retrieve RAG chunks
 once, run both baselines and all three loop modes, then score every final
-solution with the independent judge and the objective metric. We report means
+solution with the independent judge and the objective metric. Prior to a
+paper run the harness **disables Smriti** (`memory_policy="disabled"`),
+**archives legacy old-schema results** (`experiment_results/archive_legacy_*/`),
+and **backs up + clears** the memory DB, so reported numbers never derive
+from July-era runs or online learning. We report means
 with standard deviations across seeds and paired statistical tests
 (one-sample t-test on within-loop gain; paired t-test + Wilcoxon on
 loop-minus-baseline judge differences, with Cohen's $d$ and 95% CIs).
+LLM calls are seeded via Ollama's ``seed`` option per (task, seed, agent,
+iteration) plus a fixed judge seed at temperature 0.2, so variance is
+accounted for rather than left to sampling noise. Dependency versions
+(numpy/scipy/matplotlib) and models are logged into every `latest.json`.
+
+Runtime note: the full 90-record run is ~3k LLM calls (hours). A pilot
+smoke test (`python run_experiment.py --pilot` → 3 tasks × 1 seed,
+`fast_mode`, full-only, `experiment_results_pilot/`) validates the
+pipeline in minutes; `--dry-run` prints the resolved config without any
+Ollama calls.
 
 ### 4.3 Implementation
 
 Local models via Ollama (`qwen2.5:1.5b` generator, `mistral:latest`
-critic/judge). Backend FastAPI/Python; frontend Next.js. All prompts, weights,
-and thresholds are fixed and released. `test_experiment_pipeline.py` validates
-the harness on synthetic data without Ollama (parser, summary, plots, stats).
+critic; judge `mistral:latest` by default, overridable to a different
+family via `--judge-model`). Backend FastAPI/Python; frontend Next.js.
+All prompts, weights, and thresholds are fixed and released.
+`test_experiment_pipeline.py` validates the harness on synthetic data
+without Ollama (parser, summary, plots, stats).
 
 ## 5. Results
 
@@ -214,11 +252,13 @@ groundedness when present), `baseline_comparison`.
 
 ## 6. Threats to Validity
 
-- **Judge bias.** Even an independent judge is an LLM, currently in the same
-  model family as the critic. Mitigations: frozen rubric, separate instance,
-  low temperature, and objective execution/groundedness cross-checks. Human
-  evaluation on a sample remains desirable; swapping judge family is a
-  required sensitivity check.
+- **Judge bias.** Even an independent judge is an LLM, by default in the same
+  model family as the critic unless `--judge-model` overrides it to a
+  different family (e.g. `llava:latest`). Mitigations: frozen rubric, separate
+  instance, low temperature (0.2), fixed judge seed, and objective
+  execution/groundedness cross-checks. Human evaluation on a sample remains
+  desirable; the judge-family rerun (report Spearman correlation vs the
+  primary judge) is the required sensitivity check.
 - **Lexical groundedness is a proxy.** Word overlap is cheap and LLM-free but
   misses paraphrase and claim-level support. The judge dimension is richer
   but model-dependent. Both are reported; neither alone is sufficient.
@@ -226,8 +266,14 @@ groundedness when present), `baseline_comparison`.
   five categories to bound this, but domain coverage is limited.
 - **Model-specificity.** Gains are measured on the stated local models;
   absolute numbers will vary with model choice/hardware.
-- **Determinism.** LLM sampling is not perfectly reproducible; multiple seeds
-  and paired tests account for variance. Report seed count and CIs.
+- **Determinism.** Ollama sampling is seeded per (task, seed, agent,
+  iteration) but is not bit-identical across Ollama versions/hardware;
+  multiple seeds and paired tests (with CIs) account for variance. Report
+  seed count, versions (logged in `latest.json`), and CIs.
+- **Memory.** Paper numbers use `memory_policy="disabled"` (no Smriti read
+  or write) to isolate the loop; any memory benefit must be demonstrated
+  separately under an explicit online-learning protocol, not conflated with
+  the loop gain.
 - **Cost/latency.** The loop uses more tokens and time than single passes.
   Relative-cost reporting makes the trade-off explicit; claims must be read
   alongside cost.

@@ -1,0 +1,476 @@
+{
+  "config": {
+    "model": "mistral:latest",
+    "generator_model": "qwen2.5:1.5b",
+    "critic_model": "mistral:latest",
+    "judge_model": "mistral:latest",
+    "ollama_url": "http://localhost:11434",
+    "max_iterations": 2,
+    "min_improvement": 0.5,
+    "fast_mode": true,
+    "output_dir": "experiment_results_chunks/P1_core_3tasks",
+    "seeds": [
+      42
+    ],
+    "use_rag": false,
+    "resume": true,
+    "ablation_modes": [
+      "full"
+    ],
+    "memory_policy": "disabled",
+    "clear_memory_before_run": false,
+    "archive_legacy_results": false,
+    "seed_base": null,
+    "_pilot_tasks": [
+      {
+        "task": "Write a Python function named is_prime(n) to check if a number is prime",
+        "category": "code_algorithms",
+        "use_rag": false,
+        "is_code": true,
+        "tests": "assert is_prime(2) is True\nassert is_prime(1) is False\nassert is_prime(17) is True\nassert is_prime(9) is False"
+      },
+      {
+        "task": "Write a Python function named reverse_list(head) to reverse a singly linked list. Nodes have .val and .next attributes; use this Node class: class Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next",
+        "category": "code_algorithms",
+        "use_rag": false,
+        "is_code": true,
+        "tests": "class Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\ndef _vals(h):\n    out=[]\n    while h:\n        out.append(h.val)\n        h=h.next\n    return out\nassert reverse_list(None) is None\nassert _vals(reverse_list(Node(1, Node(2, Node(3))))) == [3,2,1]\nassert _vals(reverse_list(Node(7))) == [7]"
+      },
+      {
+        "task": "Write a Python function named max_subarray(nums) to find the maximum subarray sum (Kadane's algorithm) of a non-empty list of numbers",
+        "category": "code_algorithms",
+        "use_rag": false,
+        "is_code": true,
+        "tests": "assert max_subarray([-2,1,-3,4,-1,2,1,-5,4]) == 6\nassert max_subarray([-1]) == -1\nassert max_subarray([1,2,3]) == 6"
+      }
+    ]
+  },
+  "versions": {
+    "python": "3.13.5",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "matplotlib": "3.10.0"
+  },
+  "results": [
+    {
+      "task": "Write a Python function named is_prime(n) to check if a number is prime",
+      "category": "code_algorithms",
+      "is_code": true,
+      "use_rag": false,
+      "seed": 42,
+      "baselines": {
+        "weak": {
+          "output": "```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n    \n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n    \n    Parameters:\n    n (int): The integer to check for primality.\n    \n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 1:\n        return False\n    if n == 2 or n == 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    \n    i = 5\n    while (i * i) <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    \n    return True\n\n# Function to test the correctness of is_prime function\ndef check_prime():\n    test_cases = [2, 3, 4, 5, 17, 18, 19, 20]\n    for n in test_cases:\n        print(f\"is_prime({n}) = {is_prime(n)}\")\n\ncheck_prime()\n```\n\nThis Python function `is_prime` checks if a given integer is prime by implementing the following steps:\n\n1. Handles edge cases: If `n` is less than or equal to 1, it's not prime.\n2. Checks for small primes: It specifically checks for 2 and 3 as they are prime numbers.\n3. Uses a loop to check divisibility from 5 onwards with an increment of 6 (i.e., checking the form `i * i` which ensures that we only need to test up to the square root of `n`).\n4. Returns True",
+          "time": 9.564759016036987,
+          "model": "qwen2.5:1.5b",
+          "seed": 42,
+          "total_tokens": 445,
+          "cost": 95.35714285714285,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 9.7,
+              "raw_composite": 9.7,
+              "scores": {
+                "correctness": 10,
+                "accuracy": 10,
+                "efficiency": 9,
+                "clarity": 8,
+                "edge_case_coverage": 10,
+                "groundedness": null
+              },
+              "critique": "The provided Python function `is_prime` correctly implements a prime number checker, handles edge cases, and is efficient by only testing divisibility up to the square root of the input number. The code is well-structured and easy to understand.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 4,
+              "tests_passed": 4,
+              "score": 1.0,
+              "stdout": "is_prime(2) = True\nis_prime(3) = True\nis_prime(4) = False\nis_prime(5) = True\nis_prime(17) = True\nis_prime(18) = False\nis_prime(19) = True\nis_prime(20) = False\n",
+              "stderr": "",
+              "error": null
+            }
+          }
+        },
+        "strong": {
+          "output": "In Python, a prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself. Here's a simple implementation of the `is_prime` function in Python using the range function:\n\n```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    elif n <= 3:\n        return True\n    elif n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```\n\nThis function checks if the number is less than or equal to 1, in which case it's not prime. If the number is less than or equal to 3, it's considered prime. For numbers greater than 3, it checks for divisibility by 2 and 3 first, as these are the only even primes. Then, it skips multiples of 2 and 3 by incrementing `i` by 6 (since every prime number greater than 5 is of the form 6k \u00b1 1). Finally, it checks for divisibility by all remaining odd numbers up to the square root of the input number.",
+          "time": 27.28526782989502,
+          "model": "mistral:latest",
+          "seed": 42,
+          "total_tokens": 358,
+          "cost": 358.0,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 8.45,
+              "raw_composite": 8.45,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 8,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 7,
+                "groundedness": null
+              },
+              "critique": "The provided solution effectively implements a function to check if a number is prime using an efficient algorithm that skips multiples of 2 and 3, making it more computationally efficient. The code is well-structured and easy to understand, with clear comments for clarity. Edge cases are handled appropriately, including checking for numbers less than or equal to 1, and the function returns False for composite numbers. However, there's a minor issue in that the function does not handle negative numbers, which may lead to incorrect results.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 4,
+              "tests_passed": 4,
+              "score": 1.0,
+              "stdout": "",
+              "stderr": "",
+              "error": null
+            }
+          }
+        }
+      },
+      "multi_agent": {
+        "full": {
+          "task": "Write a Python function named is_prime(n) to check if a number is prime",
+          "final_solution": "Here's the optimized version of the `is_prime` function by applying the suggested fixes:\n\n```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n\n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n\n    Parameters:\n    n (int): The integer to check for primality.\n\n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 1:\n        return False\n    elif n == 2:\n        return True\n\n    # Optimize loop to go up to the square root of n instead of n-1\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n\n    return True\n```\n\nThis version of the code addresses the critique by optimizing the loop to go up to the square root of `n`, making it more efficient. The rest of the logic remains unchanged for clarity and ease of understanding.",
+          "final_score": 6.5,
+          "iterations": [
+            {
+              "iteration": 1,
+              "yantra_output": "```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n    \n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n    \n    Parameters:\n    n (int): The integer to check for primality.\n    \n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 1:\n        return False\n    if n == 2 or n == 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    \n    i = 5\n    while (i * i) <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    \n    return True\n\n# Function to test the correctness of is_prime function\ndef check_prime():\n    test_cases = [2, 3, 4, 5, 17, 18, 19, 20]\n    for n in test_cases:\n        print(f\"is_prime({n}) = {is_prime(n)}\")\n\ncheck_prime()\n```\n\nThis Python function `is_prime` checks if a given integer is prime by implementing the following steps:\n\n1. Handles edge cases: If `n` is less than or equal to 1, it's not prime.\n2. Checks for small primes: It specifically checks for 2 and 3 as they are prime numbers.\n3. Uses a loop to check divisibility from 5 onwards with an increment of 6 (i.e., checking the form `i * i` which ensures that we only need to test up to the square root of `n`).\n4. Returns True",
+              "sutra_critique": "The function is now optimized by going up to the square root of `n` instead of `n-1`, improving its efficiency.\nThe logic remains clear and easy to understand.\nNo edge cases are explicitly mentioned, but the optimization ensures that the loop terminates early, which should cover most edge cases.\nThere are no unsupported claims as there is no RAG context provided.",
+              "sutra_scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 8,
+                "groundedness": null
+              },
+              "pre_critique": "1. No bugs or errors found in the provided code.\n2. The function is accurate for checking prime numbers.\n3. The function could be made more efficient by using a loop that goes up to the square root of `n` instead of going up to `n-1`. This would reduce the number of iterations significantly.\n4. The logic is clear and easy to understand.\n5. No missing edge cases were found in the provided code.\n6. There are no unsupported claims in the given context.",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "The function is now optimized by going up to the square root of `n` instead of `n-1`, improving its efficiency.\nThe logic remains clear and easy to understand.\nNo edge cases are explicitly mentioned, but the optimization ensures that the loop terminates early, which should cover most edge cases.\nThere are no unsupported claims as there is no RAG context provided.",
+              "post_scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 8,
+                "groundedness": null
+              },
+              "agni_output": "Here's the optimized version of the `is_prime` function by applying the suggested fixes:\n\n```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n\n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n\n    Parameters:\n    n (int): The integer to check for primality.\n\n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 1:\n        return False\n    elif n == 2:\n        return True\n\n    # Optimize loop to go up to the square root of n instead of n-1\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n\n    return True\n```\n\nThis version of the code addresses the critique by optimizing the loop to go up to the square root of `n`, making it more efficient. The rest of the logic remains unchanged for clarity and ease of understanding.",
+              "score": 6.5,
+              "raw_composite": 8.35,
+              "smoothed": true,
+              "improvement": 0.0
+            },
+            {
+              "iteration": 2,
+              "yantra_output": "Thank you for providing the critique and feedback. I will refine the previous attempt by addressing all identified issues while preserving the correctness of the code:\n\n```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n\n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n\n    Parameters:\n    n (int): The integer to check for primality.\n\n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 1:\n        return False\n    elif n == 2:\n        return True\n\n    # Optimization: only need to check up to the square root of n for primality\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n\n    return True\n```\n\nThis refined version maintains all correct parts from the previous attempt while addressing the critique:\n\n- **Edge Cases**: The function now explicitly handles edge cases such as `n <= 1` and `n == 2`. This ensures that these specific scenarios are correctly handled.\n  \n- **Loop Optimization**: By optimizing the loop to go up to the square root of `n`, the code is more efficient. This optimization reduces unnecessary checks, making it faster for larger values of `n`.\n\nThe rest of the logic remains unchanged and is kept clear and easy to understand. The function now correctly checks if a number is prime by verifying that no divisors other than 1 and itself exist within the optimized range.\n\nThis refinement ensures that the code is both correct and efficient, following best practices for problem-solving in Python programming.",
+              "sutra_critique": "The function is well-structured and addresses all the critique points.\nEdge cases are handled correctly.\nPerformance is optimized by checking only up to the square root of n.\nLogic remains clear and easy to understand.",
+              "sutra_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_critique": "The code is now correct and efficient.\nIt addresses the critique by handling edge cases and optimizing the loop.\nThe logic remains clear and easy to understand.\nNo missing edge cases were identified.\nThere are no unsupported claims in this context.",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "The function is well-structured and addresses all the critique points.\nEdge cases are handled correctly.\nPerformance is optimized by checking only up to the square root of n.\nLogic remains clear and easy to understand.",
+              "post_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "agni_output": "The refined version of the Python function `is_prime(n)` that addresses the critique and ensures correctness, efficiency, clarity, and grounding is:\n\n```python\ndef is_prime(n):\n    \"\"\"\n    Check if the given integer n is a prime number.\n\n    A prime number is a natural number greater than 1 that has no positive divisors other than 1 and itself.\n\n    Parameters:\n    n (int): The integer to check for primality.\n\n    Returns:\n    bool: True if n is a prime number, False otherwise.\n    \"\"\"\n    # Handle edge cases\n    if n <= 0:\n        return False\n    elif n == 1:\n        return False\n    elif n == 2:\n        return True\n\n    # Optimization: only need to check up to the square root of n for primality\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n\n    return True\n```\n\nThis refined version maintains all correct parts from the previous attempt while addressing the critique:\n\n- **Edge Cases**: The function now explicitly handles edge cases such as `n <= 0`, `n == 1`, and `n == 2`.\n- **Performance**: The loop is optimized to check only up to the square root of n.\n- **Clarity**: The logic remains clear and easy to understand.\n- **Grounding**: The claim that a prime number has no positive divisors other than 1 and itself is supported in the context provided.",
+              "score": 5.0,
+              "raw_composite": 5.0,
+              "smoothed": false,
+              "improvement": -1.5
+            }
+          ],
+          "total_iterations": 2,
+          "time": 146.84853100776672,
+          "agent": "Multi-Agent Loop",
+          "mode": "full",
+          "total_tokens": 6862,
+          "cost": 5903.428571428572,
+          "execution_passed": true,
+          "status": "success",
+          "error": null,
+          "evaluation": {
+            "judge": {
+              "score": 9.25,
+              "raw_composite": 9.25,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 10,
+                "groundedness": null
+              },
+              "critique": "The provided solution effectively checks if a number is prime, handles edge cases, and is optimized by going up to the square root of n instead of n-1. It is clear, well-structured, and easy to understand.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 4,
+              "tests_passed": 4,
+              "score": 1.0,
+              "stdout": "",
+              "stderr": "",
+              "error": null
+            }
+          }
+        }
+      },
+      "timestamp": "2026-11-09T21:02:38.639831"
+    },
+    {
+      "task": "Write a Python function named reverse_list(head) to reverse a singly linked list. Nodes have .val and .next attributes; use this Node class: class Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next",
+      "category": "code_algorithms",
+      "is_code": true,
+      "use_rag": false,
+      "seed": 42,
+      "baselines": {
+        "weak": {
+          "output": "Certainly! Below is the Python function `reverse_list` that reverses a singly linked list. The nodes in the original list are replaced with their reversed counterparts.\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list.\n    \n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n    \n    Returns:\n    Node: The new head of the reversed singly linked list.\n    \"\"\"\n    if not head or not head.next:\n        return head\n    \n    # Initialize pointers\n    prev = None\n    current = head\n    \n    while current:\n        next_node = current.next  # Store the node after current for later use\n        current.next = prev       # Reverse the direction of the current node's pointer\n        \n        # Move to the next pair of nodes\n        prev = current\n        current = next_node\n    \n    return prev\n\n# Example usage:\nif __name__ == \"__main__\":\n    # Create a sample linked list: 1 -> 2 -> 3 -> None\n    head = Node(1, Node(2, Node(3)))\n    \n    print(\"Original List:\")\n    while head:\n        print(head.val, end=\" -> \")\n        head = head.next\n    \n    reversed_head = reverse_list(head)\n    \n    print(\"\\nReversed List:\")\n    while reversed_head:\n        print(reversed_head.val, end=\" -> \")\n        reversed_head = reversed_head.next\n```\n\nThis function works by iterating through the list and reversing each node's `next` pointer. The first node points to `None`, the second node points to its previous node (which is `head`), and so on until all nodes are reversed.",
+          "time": 8.849684238433838,
+          "model": "qwen2.5:1.5b",
+          "seed": 42,
+          "total_tokens": 479,
+          "cost": 102.64285714285714,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 8.8,
+              "raw_composite": 8.8,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 9,
+                "efficiency": 8,
+                "clarity": 8,
+                "edge_case_coverage": 9,
+                "groundedness": null
+              },
+              "critique": "The provided solution correctly solves the task of reversing a singly linked list, producing correct results for various inputs. The function's implementation is efficient in terms of computational complexity (O(n)), and it handles edge cases such as an empty or single-node list. The code is well-structured, readable, and includes comments to improve clarity. However, the solution does not explicitly check for cyclic linked lists, which could potentially lead to unexpected behavior.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 3,
+              "tests_passed": 3,
+              "score": 1.0,
+              "stdout": "Original List:\n1 -> 2 -> 3 -> \nReversed List:\n",
+              "stderr": "",
+              "error": null
+            }
+          }
+        },
+        "strong": {
+          "output": "To reverse a singly linked list in Python using the provided `Node` class, you can create a recursive function called `reverse_list()`. Here's the implementation:\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    if head is None or head.next is None:\n        return head\n\n    reversed_tail = reverse_list(head.next)\n    head.next.next = head\n    head.next = None\n    return reversed_tail\n```\n\nIn this code, the `reverse_list()` function takes a head node as input and recursively swaps the next pointers of each pair of adjacent nodes in the list to reverse its order. The base case is when the list has only one or zero nodes. In that case, the function simply returns the head node since it doesn't need to be reversed.\n\nWhen `reverse_list()` is called with a non-empty linked list, it will recursively call itself with the next node until it reaches the end of the list (i.e., when `head.next` becomes `None`). At that point, it swaps the current head's next pointer with the previous tail's next pointer to reverse the direction of the link and then updates the head's next pointer to `None`. Finally, it returns the new reversed tail node.\n\nYou can test this function using the following code:\n\n```python\nnode1 = Node(1)\nnode2 = Node(2)\nnode3 = Node(3)\nnode4 = Node(4)\n\nnode1.next",
+          "time": 34.845600843429565,
+          "model": "mistral:latest",
+          "seed": 42,
+          "total_tokens": 491,
+          "cost": 491.0,
+          "status": "success",
+          "evaluation": {
+            "judge": {
+              "score": 8.85,
+              "raw_composite": 8.85,
+              "scores": {
+                "correctness": 9,
+                "accuracy": 10,
+                "efficiency": 8,
+                "clarity": 9,
+                "edge_case_coverage": 6,
+                "groundedness": null
+              },
+              "critique": "The provided solution correctly reverses a singly linked list using recursion and is well-structured, making it easy to understand. The code is efficient as it only requires linear time (O(n)) for the reversal operation. However, edge case coverage could be improved by explicitly handling the case when the input list has no nodes or just one node.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 3,
+              "tests_passed": 3,
+              "score": 1.0,
+              "stdout": "",
+              "stderr": "",
+              "error": null
+            }
+          }
+        }
+      },
+      "multi_agent": {
+        "full": {
+          "task": "Write a Python function named reverse_list(head) to reverse a singly linked list. Nodes have .val and .next attributes; use this Node class: class Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next",
+          "final_solution": "The original code is already correct and efficient, so no changes are needed to meet the criteria of the critique. Here's the complete solution for reference:\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list.\n    \n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n\n    Returns:\n    A new singly linked list with the original nodes in reversed order.\n    \"\"\"\n    prev_node = None\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # Store the next node\n        current_node.next = prev_node   # Reverse the current node's next pointer\n        prev_node = current_node       # Move to the previous node\n        current_node = next_node       # Move to the next node\n\n    return prev_node  # The last non-None node is now the head of the reversed list\n```\n\nThis function follows the same logic as the original code, but I've added a bit more clarity by renaming some variables and adding comments. It returns the reversed linked list instead of modifying the input list in-place. This makes it easier to use the function in different contexts.",
+          "final_score": 5.0,
+          "iterations": [
+            {
+              "iteration": 1,
+              "yantra_output": "Certainly! Below is the Python function `reverse_list` that reverses a singly linked list. The nodes in the original list are replaced with their reversed counterparts.\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list.\n    \n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n    \n    Returns:\n    Node: The new head of the reversed singly linked list.\n    \"\"\"\n    if not head or not head.next:\n        return head\n    \n    # Initialize pointers\n    prev = None\n    current = head\n    \n    while current:\n        next_node = current.next  # Store the node after current for later use\n        current.next = prev       # Reverse the direction of the current node's pointer\n        \n        # Move to the next pair of nodes\n        prev = current\n        current = next_node\n    \n    return prev\n\n# Example usage:\nif __name__ == \"__main__\":\n    # Create a sample linked list: 1 -> 2 -> 3 -> None\n    head = Node(1, Node(2, Node(3)))\n    \n    print(\"Original List:\")\n    while head:\n        print(head.val, end=\" -> \")\n        head = head.next\n    \n    reversed_head = reverse_list(head)\n    \n    print(\"\\nReversed List:\")\n    while reversed_head:\n        print(reversed_head.val, end=\" -> \")\n        reversed_head = reversed_head.next\n```\n\nThis function works by iterating through the list and reversing each node's `next` pointer. The first node points to `None`, the second node points to its previous node (which is `head`), and so on until all nodes are reversed.",
+              "sutra_critique": "The function now returns the reversed linked list instead of modifying the input list in-place.\nVariable names have been renamed for clarity and comments have been added to improve readability.\nNo bugs or errors were found during execution.",
+              "sutra_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_critique": "The code appears to be correct and functional for reversing a singly linked list.\nThere are no bugs or errors in the provided code.\nThe code is efficient as it only requires linear time (O(n)) to reverse the linked list.\nThe logic is clear and easy to understand, making it simple to follow along.\nThe example usage demonstrates the correct behavior of the function.\nNo missing edge cases are apparent in the provided code.\nThere are no unsupported claims in this context.",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "The function now returns the reversed linked list instead of modifying the input list in-place.\nVariable names have been renamed for clarity and comments have been added to improve readability.\nNo bugs or errors were found during execution.",
+              "post_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "agni_output": "The original code is already correct and efficient, so no changes are needed to meet the criteria of the critique. Here's the complete solution for reference:\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list.\n    \n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n\n    Returns:\n    A new singly linked list with the original nodes in reversed order.\n    \"\"\"\n    prev_node = None\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # Store the next node\n        current_node.next = prev_node   # Reverse the current node's next pointer\n        prev_node = current_node       # Move to the previous node\n        current_node = next_node       # Move to the next node\n\n    return prev_node  # The last non-None node is now the head of the reversed list\n```\n\nThis function follows the same logic as the original code, but I've added a bit more clarity by renaming some variables and adding comments. It returns the reversed linked list instead of modifying the input list in-place. This makes it easier to use the function in different contexts.",
+              "score": 5.0,
+              "raw_composite": 5.0,
+              "smoothed": false,
+              "improvement": 0.0
+            },
+            {
+              "iteration": 2,
+              "yantra_output": "You're right; keeping everything that is already correct while addressing the critique is a good approach. Here's how you can refine your previous solution:\n\n1. **Return the Reversed List**: The function should return the reversed linked list, which will be more useful in certain contexts.\n2. **Clarify Variable Names and Add Comments**: This improves readability and maintainability.\n\nHere\u2019s the refined version of your code:\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list.\n    \n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n\n    Returns:\n    Node: The new head of the reversed linked list.\n    \"\"\"\n    # Initialize pointers for reversing\n    prev_node = None  # This will eventually point to the last node in the original list\n    current_node = head\n\n    while current_node is not None:\n        next_node = current_node.next  # Store the next node\n        current_node.next = prev_node   # Reverse the current node's next pointer\n        prev_node = current_node       # Move to the previous node\n        current_node = next_node       # Move to the next node\n\n    return prev_node  # The last non-None node is now the head of the reversed list\n```\n\n### Explanation:\n1. **Return the Reversed List**: By changing `return prev_node` inside the loop, we ensure that the function returns a new linked list with the original nodes in reverse order.\n2. **Clarify Variable Names and Add Comments**: The variable names are kept consistent but improved for clarity. Comments have been added to explain what each part of the code does.\n\nThis version maintains the correctness of your previous attempt while addressing the critique by returning the",
+              "sutra_critique": "Clarity: The code is well-organized and easy to understand.\nPerformance: The function performs efficiently as it only uses constant space and linear time.\nGrounding: The code correctly reverses a linked list in-place without creating a new one.\nMissing edge cases: None detected\nUnclear logic: None detected\nUnsupported claims: None provided, but the function does what it claims to do.",
+              "sutra_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_critique": "The code is clear and well-organized with comments explaining each step.\nVariable names are descriptive and consistent.\nThe function correctly reverses a linked list in-place without creating a new one.\nNo bugs or errors were found during execution.",
+              "pre_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "pre_score": 5.0,
+              "post_critique": "Clarity: The code is well-organized and easy to understand.\nPerformance: The function performs efficiently as it only uses constant space and linear time.\nGrounding: The code correctly reverses a linked list in-place without creating a new one.\nMissing edge cases: None detected\nUnclear logic: None detected\nUnsupported claims: None provided, but the function does what it claims to do.",
+              "post_scores": {
+                "correctness": 5,
+                "accuracy": 5,
+                "efficiency": 5,
+                "clarity": 5,
+                "edge_case_coverage": 5,
+                "groundedness": null
+              },
+              "agni_output": "Based on your request, I have made only the necessary changes to improve the code while preserving its correctness and performance:\n\n```python\nclass Node:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_list(head):\n    \"\"\"\n    Reverses a singly linked list in-place.\n\n    Parameters:\n    head (Node): The head of the singly linked list to be reversed.\n\n    Returns:\n    None - The original linked list is modified in-place.\n    \"\"\"\n\n    prev_node = None  # This will eventually point to the last node in the original list\n    current_node = head  # Start from the head of the list\n\n    while current_node is not None:\n        next_node = current_node.next  # Save the next node for later\n        current_node.next = prev_node  # Connect the current node to the previous one in reverse order\n        prev_node = current_node       # Move to the next pair of nodes\n        current_node = next_node\n\n    # The original head now points to the new last node, effectively reversing the list.\n```\n\nIn this version, I have kept the logic clear and made minimal changes to the code while addressing the critique by:\n1. Correctness - the function still correctly reverses a linked list in-place without creating a new one.\n2. Performance - no performance optimization was required since the original implementation was already efficient.\n3. Clarity - the variable names are descriptive and consistent, and comments have been added to explain what each part of the code does.\n4. Grounding -",
+              "score": 5.0,
+              "raw_composite": 5.0,
+              "smoothed": false,
+              "improvement": 0.0
+            }
+          ],
+          "total_iterations": 2,
+          "time": 176.70489597320557,
+          "agent": "Multi-Agent Loop",
+          "mode": "full",
+          "total_tokens": 6812,
+          "cost": 5763.071428571428,
+          "execution_passed": true,
+          "status": "success",
+          "error": null,
+          "evaluation": {
+            "judge": {
+              "score": 9.7,
+              "raw_composite": 9.7,
+              "scores": {
+                "correctness": 10,
+                "accuracy": 10,
+                "efficiency": 9,
+                "clarity": 8,
+                "edge_case_coverage": 10,
+                "groundedness": 10
+              },
+              "critique": "The provided solution is a well-written, efficient, and clear implementation of the reverse_list function for a singly linked list. It handles edge cases correctly by iterating through the list until it reaches None. The function is also grounded as it accurately reverses the given linked list.",
+              "ok": true
+            },
+            "objective": {
+              "runs": true,
+              "tests_run": 3,
+              "tests_passed": 3,
+              "score": 1.0,
+              "stdout": "",
+              "stderr": "",
+              "error": null
+            }
+          }
+        }
+      },
+      "timestamp": "2026-11-09T21:07:12.922944"
+    }
+  ],
+  "summary": {
+    "n_complete": 2,
+    "n_judged": 2,
+    "weak_judge_mean": 9.25,
+    "strong_judge_mean": 8.649999999999999,
+    "multi_judge_mean": 9.475,
+    "improvement_vs_weak": 0.22499999999999964,
+    "improvement_vs_strong": 0.8250000000000011,
+    "within_loop_improvement_mean": 0.0,
+    "within_loop_improvement_std": 0.0,
+    "objective_exec_rate_weak": 1.0,
+    "objective_exec_rate_strong": 1.0,
+    "objective_exec_rate_multi": 1.0,
+    "weak_time_mean": 9.207221627235413,
+    "strong_time_mean": 31.065434336662292,
+    "multi_time_mean": 161.77671349048615,
+    "weak_cost_mean": 99.0,
+    "strong_cost_mean": 424.5,
+    "multi_cost_mean": 5833.25,
+    "multi_tokens_mean": 6837.0,
+    "objective_groundedness_weak": null,
+    "objective_groundedness_strong": null,
+    "objective_groundedness_multi": null,
+    "judge_groundedness_weak": null,
+    "judge_groundedness_strong": null,
+    "judge_groundedness_multi": 10.0,
+    "ablation_judge_means": {
+      "full": 9.475
+    }
+  }
+}
